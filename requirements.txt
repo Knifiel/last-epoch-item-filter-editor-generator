@@ -1,0 +1,4 @@
+UnityPy>=1.25,<2
+# Builds the class layouts (schemas) for resources.assets from the game's own code.
+TypeTreeGeneratorAPI>=0.0.10
+pytest>=8

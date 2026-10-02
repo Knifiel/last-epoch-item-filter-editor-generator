@@ -1,0 +1,65 @@
+# Push a tag like v0.1.0: tests run, Windows and Linux executables are built and attached to a
+# GitHub release for that tag.
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+  build:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            asset: LastEpochItemFilterEditor-windows.zip
+          - os: ubuntu-22.04          # older glibc: the binary also runs on newer distros (Arch, SteamOS ...)
+            asset: LastEpochItemFilterEditor-linux.tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pyinstaller
+      - run: python -m PyInstaller packaging/lefilter.spec --noconfirm
+      - run: python packaging/collect_licenses.py dist/THIRD_PARTY_LICENSES.txt
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item README.md, LICENSE dist/
+          Compress-Archive -Path dist/* -DestinationPath ${{ matrix.asset }}
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cp README.md LICENSE dist/
+          tar -czf ${{ matrix.asset }} -C dist .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" assets/* --title "${GITHUB_REF_NAME}" --notes-file packaging/RELEASE_NOTES.md

@@ -1,0 +1,210 @@
+import pytest
+
+from lefilter.filterdoc import new_rule, parse_rule_blocks
+from lefilter.filterxml import render_rule
+from lefilter.matcher import Context, evaluate
+from lefilter.rules import ConfigError, plan_rules
+from lefilter.starter import build_starter, gear_affix_ids, plan_exalted, refresh_generated
+
+THRESHOLDS = {"uncommon": 0.25, "rare": 0.5, "very_rare": 0.75, "extremely_rare": 0.95}
+
+
+def unique(uid, name, base_type=21, lpl=20, reroll=0.0):
+    return {"id": uid, "name": name, "internal_name": name, "lpl": lpl, "level": lpl, "reroll_chance": reroll,
+            "can_drop_randomly": True, "weavers_will": False, "is_set": False, "is_primordial": False,
+            "is_cocooned": False, "hidden": False, "base_type": base_type, "base_type_name": "x"}
+
+
+def affix(aid, name, rolls_on=(16, 0), special=0, idol=False):
+    return {"id": aid, "name": name, "category": "c", "header": "", "class": 0, "special": special, "idol": idol,
+            "prefix": True, "level": 0, "rolls_on": list(rolls_on)}
+
+
+DATA = {
+    "game_version": "1.5",
+    "uniques": [unique(1, "Ring One"), unique(2, "Idol One", base_type=33), unique(3, "Idol Two", base_type=25, lpl=0)],
+    "affixes": [affix(30, "Phys"), affix(25, "Health"), affix(105, "Idol Health", (33,), idol=True),
+                affix(950, "Set thing", special=3), affix(1088, "Altar thing", (41,)),
+                affix(698, "Julra's", special=2)],
+    "bases": [{"id": 16, "type": "TWO_HANDED_SWORD", "name": "Two-Handed Sword", "category": "", "weapon": True,
+               "subtypes": [{"id": 0, "name": "Bastard Sword", "level": 0, "drops": True, "class": 0}]}],
+}
+CONFIG = {
+    "filter": {"rule_prefix": "[A] "},
+    "rarity": THRESHOLDS,
+    "affix_rule": [{"name": "ALWAYS SHOW - PERSONAL", "affix_categories": ["c"]}],
+    "class_hide": {"add": True},
+    "starter": {"legendary": {"name": "LEGENDARY", "color": 7}, "hide_rest": {"name": "HIDE REST"}},
+    "exalted_rule": [{"name": "DOUBLE T7", "min": 2, "tier": 7, "uncorrupted": True, "color": 7},
+                     {"name": "T7 + T6", "min": 2, "tier": 6, "total": 13},
+                     {"name": "SINGLE T7", "min": 1, "tier": 7}],
+    "group": [{"name": "COMMON", "header": "--- UNIQUES ---", "categories": ["common"], "rules": [{"lp_min": 1}]},
+              {"name": "UNIQUE IDOLS", "categories": ["common"], "base_types": ["IDOLS"], "rules": [{"label": "show all"}]}],
+    "build_slots": {"add": True, "name": "EDIT FOR YOUR BUILD - {section}"},
+}
+CTX = Context({**DATA, "bases": []})
+
+
+def test_exalted_rules_count_gear_affixes_by_tier():
+    assert gear_affix_ids(DATA["affixes"]) == [30, 25]           # no idol, set, personal or altar affixes
+    rules = parse_rule_blocks([render_rule(r) for r in plan_exalted(CONFIG, DATA["affixes"])])
+    double = rules[0]["conditions"]
+    assert double[0] == {"type": "AffixCondition", "affixes": [30, 25], "comparsion": "MORE_OR_EQUAL",
+                         "comparsion_value": 7, "min_on_same_item": 2, "combined_comparsion": "ANY",
+                         "combined_value": 1, "advanced": True}
+    assert double[1] == {"type": "CorruptionCondition", "corruption": "OnlyUncorrupted"}
+    item = lambda t1, t2, corrupted=False: {"type": "BOOTS", "subtype": 0, "rarity": "RARE", "corrupted": corrupted,
+                                            "affixes": [{"id": 30, "tier": t1}, {"id": 25, "tier": t2}]}
+    name = lambda it: rules[evaluate(rules, it, 50, CTX)["index"]]["name"] if evaluate(rules, it, 50, CTX)["index"] is not None else None
+    assert name(item(7, 7)) == "DOUBLE T7"
+    assert name(item(7, 7, corrupted=True)) == "T7 + T6"
+    assert name(item(7, 6)) == "T7 + T6"
+    assert name(item(7, 5)) == "SINGLE T7"
+    assert name(item(6, 6)) is None
+    with pytest.raises(ConfigError, match="tier 1-8"):
+        plan_exalted({"exalted_rule": [{"name": "x", "tier": 9}]}, DATA["affixes"])
+
+
+def test_unique_groups_can_select_by_item_type():
+    plan = plan_rules(CONFIG, DATA["uniques"])
+    assert [u["id"] for u in plan.members["UNIQUE IDOLS"]] == [3, 2]       # sorted by LPL
+    assert [u["id"] for u in plan.members["COMMON"]] == [3, 2, 1]           # same LPL: by name
+    with pytest.raises(ConfigError, match="base_types"):
+        plan_rules({**CONFIG, "group": [{"name": "G", "categories": ["common"], "base_types": ["IDOLZ"], "rules": [{}]}]},
+                   DATA["uniques"])
+
+
+def test_starter_parts_in_order_with_class_enabled():
+    doc = build_starter(CONFIG, DATA, {"name": "Sentinel", "character_class": "Sentinel",
+                                       "parts": ["personal", "exalted", "legendary", "class_hide", "uniques", "hide_rest"]})
+    names = [(r["name"], r["enabled"]) for r in doc["rules"]]
+    assert names[:6] == [("[A] ALWAYS SHOW - PERSONAL", True), ("------ EXALTED & LEGENDARY ------", False),
+                         ("DOUBLE T7", True), ("T7 + T6", True), ("SINGLE T7", True), ("LEGENDARY", True)]
+    hides = [n for n in names if n[0].startswith("[A] Hide non-")]
+    assert hides[2] == ("[A] Hide non-Sentinel class non-legendary items", True)
+    assert sum(on for _, on in hides) == 1
+    assert names[-1] == ("HIDE REST", True) and doc["rules"][-1]["type"] == "HIDE" and not doc["rules"][-1]["conditions"]
+    assert doc["header"]["name"] == "Sentinel" and doc["header"]["version"] == "1.5"
+
+
+def test_starter_leveling_goes_above_the_bottom_hide_rule():
+    doc = build_starter(CONFIG, DATA, {"parts": ["hide_rest", "leveling"],
+                                       "leveling": {"weapons": ["TWO_HANDED_SWORD"], "weapon_mode": "bases"}})
+    assert [r["name"] for r in doc["rules"]] == ["[L] ------- LEVELING (auto) -------", "[L] Two-Handed Sword 0-59",
+                                                "HIDE REST"]
+
+
+def test_refresh_keeps_toggles_and_filled_build_slots():
+    first = build_starter(CONFIG, DATA, {"parts": ["class_hide", "uniques", "hide_rest"]})["rules"]
+    by = {r["name"]: r for r in first}
+    by["[A] Hide non-Mage class non-legendary items"]["enabled"] = True
+    slot = by["[A] EDIT FOR YOUR BUILD - UNIQUES"]
+    slot["conditions"][1]["uniques"] = [{"id": 1, "rolls": []}]
+    slot["enabled"] = True
+    config = {**CONFIG, "group": CONFIG["group"] + [{"name": "NEW GROUP", "categories": ["common"], "rules": [{}]}]}
+    res = refresh_generated(config, DATA, first)
+    names = [r["name"] for r in res["rules"]]
+    assert "[A] NEW GROUP - all" in names and names[-1] == "HIDE REST"
+    again = {r["name"]: r for r in res["rules"]}
+    assert again["[A] Hide non-Mage class non-legendary items"]["enabled"]
+    assert again["[A] EDIT FOR YOUR BUILD - UNIQUES"]["conditions"][1]["uniques"] == [{"id": 1, "rolls": []}]
+    assert refresh_generated(config, DATA, res["rules"])["rules"] == res["rules"]
+
+
+def test_refresh_into_a_filter_without_generated_rules():
+    rules = [new_rule("mine"), new_rule("------ UNIQUE ITEMS ------", enabled=False), new_rule("legendary"),
+             new_rule("bottom", type="HIDE")]
+    names = [r["name"] for r in refresh_generated(CONFIG, DATA, rules)["rules"]]
+    assert names[0] == "[A] ALWAYS SHOW - PERSONAL"
+    sep = names.index("------ UNIQUE ITEMS ------")
+    assert names[sep - 5:sep] == [f"[A] Hide non-{c} class non-legendary items"
+                                  for c in ("Primalist", "Mage", "Sentinel", "Acolyte", "Rogue")]
+    assert names[sep + 1] == "[A] --- UNIQUES ---" and names[-2:] == ["legendary", "bottom"]
+
+
+# --- BiS, shatter, T8, new-from-template ----------------------------------------------
+
+from lefilter.gamedata import ARMOUR_TYPES, JEWELRY_TYPES, TYPE_IDS  # noqa: E402
+from lefilter.starter import ensure_template, make_template, new_from_template, plan_bis, plan_shatter  # noqa: E402
+
+
+def gaffix(aid, name, category="c", rolls_on=None, weight=1.0, cls=0, special=0):
+    every = [TYPE_IDS[t] for t in ("TWO_HANDED_SWORD", *ARMOUR_TYPES, *JEWELRY_TYPES)]
+    return {"id": aid, "name": name, "category": category, "header": "", "class": cls, "special": special,
+            "idol": False, "prefix": True, "level": 0, "weight": weight, "rolls_on": rolls_on or every}
+
+
+FULL = {
+    **DATA,
+    "affixes": [gaffix(30, "Increased Physical Damage"), gaffix(25, "Added Health", category="Health"),
+                gaffix(36, "Hybrid Health", category="Health", weight=0.1),
+                gaffix(719, "Physical Penetration and Minion Physical Penetration", weight=0.15),
+                gaffix(33, "Physical Penetration", rolls_on=[20], weight=0.3),
+                gaffix(563, "Level of Rive", category="Sentinel", cls=8, rolls_on=[0, 1]),
+                gaffix(1088, "Maximum Idols Equipped", category="Idol Altars", rolls_on=[41]),
+                {**gaffix(105, "Idol Health", rolls_on=[33], weight=0.1), "idol": True}],
+    "bases": [{"id": TYPE_IDS[t], "type": t, "name": t.title().replace("_", " "), "category": "", "weapon": False,
+               "subtypes": [{"id": 0, "name": "b", "level": 0, "drops": True, "class": 0}]}
+              for t in ("TWO_HANDED_SWORD", *ARMOUR_TYPES, *JEWELRY_TYPES, "IDOL_ALTAR")],
+}
+BUILD = {"damage": ["physical"], "defence": ["health"], "weapons": ["TWO_HANDED_SWORD"]}
+FULL_CONFIG = {**CONFIG, "bis": {"tier": 7, "min": 1, "color": 9, "emphasized": True, "beam_size": "LARGEST", "beam_color": 12},
+               "shatter": {"max_weight": 0.15, "class_tier": 3, "color": 16},
+               "exalted_rule": [{"name": "ALL T8", "min": 1, "tier": 8}] + CONFIG["exalted_rule"]}
+
+
+def test_bis_rules_per_slot_with_build_affixes_and_no_bases():
+    rules = plan_bis(FULL_CONFIG, FULL, BUILD)
+    names = [r.name for r in rules]
+    assert names[0].startswith("------ BIS") and names[1] == "BIS - Two Handed Sword (pick bases)"
+    assert names[-1] == "BIS - Idol Altar (pick bases & affixes)" and len(rules) == 1 + 1 + 8 + 1
+    sword, helmet, altar = rules[1], rules[2], rules[-1]
+    assert sword.item_types == ["TWO_HANDED_SWORD"] and sword.sub_types == [] and sword.affix_ids == [30, 719]
+    assert set(helmet.affix_ids) == {30, 25, 36, 719} and helmet.affix_tier == 7
+    assert sword.spec.color == 9 and sword.spec.emphasized and sword.spec.beam_size == "LARGEST"
+    assert altar.item_types == ["IDOL_ALTAR"] and altar.affix_ids == [1088]
+    bare = plan_bis(FULL_CONFIG, FULL, {})
+    assert bare[1].name == "BIS - Weapon (pick type & bases)" and bare[1].item_types == []
+    assert not any(r.spec.enabled for r in bare[1:-1])          # nothing to go on yet: switched off
+
+
+def test_shatter_rules():
+    rules = plan_shatter(FULL_CONFIG, FULL, "Sentinel")
+    general = rules[1]
+    assert general.affix_ids == [36, 719] and general.affix_tier is None and general.rarity == "MAGIC RARE EXALTED"
+    assert not {t for t in general.item_types if t.startswith("IDOL")}       # idols can't be shattered
+    by_name = {r.name: r for r in rules}
+    assert by_name["SHATTER - SENTINEL AFFIXES"].spec.enabled and by_name["SHATTER - SENTINEL AFFIXES"].affix_ids == [563]
+    assert by_name["SHATTER - SENTINEL AFFIXES"].affix_tier == 3
+    assert not by_name["SHATTER - MAGE AFFIXES"].spec.enabled
+
+
+def test_t8_rule_decides_before_double_t7():
+    rules = parse_rule_blocks([render_rule(r) for r in plan_exalted(FULL_CONFIG, FULL["affixes"])])
+    item = {"type": "BOOTS", "subtype": 0, "rarity": "RARE", "affixes": [{"id": 30, "tier": 8}, {"id": 25, "tier": 7}]}
+    assert rules[evaluate(rules, item, 90, Context({**FULL, "uniques": [], "bases": []}))["index"]]["name"] == "ALL T8"
+
+
+def test_new_from_template_applies_class_and_build(tmp_path):
+    path = tmp_path / "New filter.xml"
+    assert ensure_template(path, FULL_CONFIG, FULL) and not ensure_template(path, FULL_CONFIG, FULL)
+    template = make_template(FULL_CONFIG, FULL)
+    bis = [r for r in template["rules"] if r["name"].startswith("BIS - ")]
+    assert not any(r["enabled"] for r in bis if "Idol Altar" not in r["name"])   # no build yet: off
+    assert [r["enabled"] for r in bis if "Idol Altar" in r["name"]] == [True]     # altar affixes need no build
+    assert not any(r["enabled"] for r in template["rules"] if r["name"].startswith(("[A] Hide non-", "SHATTER - ")) and "RARE-ROLL" not in r["name"])
+    next(r for r in template["rules"] if r["name"] == "ALL T8")["color"] = 3   # template edits carry over
+    doc = new_from_template(FULL_CONFIG, FULL, template, {"name": "Sentinel", "character_class": "Sentinel",
+                                                          "fill_bis": True, "leveling": BUILD})
+    by = {r["name"]: r for r in doc["rules"]}
+    assert doc["header"]["name"] == "Sentinel" and by["ALL T8"]["color"] == 3
+    assert doc["header"]["icon"] == 5 and template["header"]["icon"] == 0      # Sentinel's filter icon
+    picked = new_from_template(FULL_CONFIG, FULL, template, {"character_class": "Sentinel", "icon": 20, "icon_color": 7})
+    assert (picked["header"]["icon"], picked["header"]["icon_color"]) == (20, 7)
+    assert by["[A] Hide non-Sentinel class non-legendary items"]["enabled"]
+    assert not by["[A] Hide non-Mage class non-legendary items"]["enabled"]
+    assert by["SHATTER - SENTINEL AFFIXES"]["enabled"] and not by["SHATTER - ROGUE AFFIXES"]["enabled"]
+    names = [r["name"] for r in doc["rules"]]
+    assert names.index("BIS - Two Handed Sword (pick bases)") == names.index("------ BIS ITEMS (pick the bases) ------") + 1
+    assert by["BIS - Helmet (pick bases)"]["enabled"]
+    assert names.index("ALL T8") < names.index("DOUBLE T7")

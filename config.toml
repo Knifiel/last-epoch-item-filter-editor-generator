@@ -1,0 +1,408 @@
+# Rule design for the generated unique / set item filter rules.
+#
+# ORDER MATTERS: groups and the rules inside them are listed in the same order
+# they appear in the in-game rule list. The game uses the FIRST rule (from the
+# top) that matches an item, so put higher LP / WW thresholds first.
+#
+# Rule options (all optional):
+#   lp_min / lp_max   legendary potential range       ww_min / ww_max  weaver's will range
+#   action            "show" (default) or "hide"       enabled          false = rule kept but switched off
+#   color             loot-filter colour number (pick one in-game and copy the number); omit = no recolour
+#   emphasized        bigger label                     sound            0 = default, 1 = none, others as in-game
+#   beam_size         NONE, SMALLEST, VERYSMALL, SMALL, MEDIUM, LARGE, VERYLARGE, LARGEST
+#   beam_color        colour number for the beam       label            rule-name suffix (auto from LP/WW if omitted)
+#
+# Group options:
+#   header      name of a disabled, condition-less separator rule placed above the group;
+#               it starts a section that runs until the next header
+#   build_slot  (header groups only) false = no build slot for this section, or a table of
+#               rule options restyling it, e.g. { color = 16, emphasized = true }
+#   categories  uniques by drop rarity:  common, uncommon, rare, very_rare, extremely_rare,
+#                                        special (cannot drop randomly: bosses, quests, timelines, gambling, ...)
+#               other uniques:           primordial, cocooned, weaver (Weaver's Will)
+#               set items:               set_common, set_uncommon, set_rare, set_very_rare,
+#                                        set_extremely_rare, set_special
+#   lpl_min / lpl_max   effective level for legendary potential (the "LP level"; higher = LP rolls rarer)
+#   base_types  only uniques of these item types (e.g. ["RING", "AMULET"], or ["IDOLS"] for every idol size)
+#   only        explicit list of unique names (or ids) instead of categories; group is skipped while empty
+#   include / exclude   names (or ids) to add to / remove from the category selection
+#
+# `python -m lefilter stats` shows how many items fall into each category and LPL range.
+
+[filter]
+# Marks generated rules so the next run can find and replace them.
+rule_prefix = "[A] "
+# Standalone build only (python -m lefilter build --standalone):
+name = "Uniques (auto)"
+description = "Unique rules generated from game data"
+icon = 13
+icon_color = 2
+hide_other_uniques = true   # bottom rule hiding every unique/set no rule above shows
+
+[template]
+# Starting-template filter: rules copied from `base` plus the generated rules.
+# Written as a new filter; the base file is never modified. `base` is a path (relative to
+# this project) or a file in the game's Filters folder. The default is the editor's
+# new-filter template, generated from the parts below when it doesn't exist.
+base = "templates/New filter.xml"
+name = "Uniques Template"
+# Base-filter rules to carry over (leave `keep` out to carry over all of them); everything
+# else is left out. Every field given in an entry must match. A section separator
+# (condition-less rule named with ---- or ====) comes along when any rule of its section is kept.
+#   name       regular expression on the rule name
+#   rarity     the rule's Rarity condition includes this (e.g. "LEGENDARY")
+#   blanket    true = rule has no item-type condition
+#   section    regular expression on the name of the separator heading the rule's section
+#   catch_all  true = enabled rule without conditions (the bottom "hide everything" rule)
+# E.g. for a hand-made base that only lends its exalted, legendary and leveling rules:
+# keep = [
+#   { rarity = "LEGENDARY" },
+#   { name = '^Double T7\s*$', blanket = true },   # blanket: skips the idol-altar "Double T7"
+#   { name = '^Single T7\s*$', blanket = true },
+#   { section = 'LEVELING' },
+#   { catch_all = true },
+# ]
+# Hand-made unique rules in the base that the generated ones replace (regular
+# expressions on rule names). The generated block goes where the first of them was.
+drop = [
+  '^UNIQUES - (COMMON|UNCOMMON|RARE|VERY RARE|EXTREMELY RARE|SPECIAL & BOSS|COCOONED)\b',
+  '^All Primordial Unique items$',
+]
+# If none of those exist: insert directly below the first rule whose name contains this ("" = top).
+after = ""
+
+[build_slots]
+# An empty, disabled "EDIT FOR YOUR BUILD" rule at the end of every generated section.
+# In-game: add the uniques / sets you want to it (rolls can be filtered there too) and
+# enable it. Being below the section's rules, it only catches items those rules don't
+# show - e.g. the one common 0LP unique you need while "COMMON 0LP" stays disabled.
+add = true
+name = "EDIT FOR YOUR BUILD - {section}"   # {section} = header text without the dashes
+color = 3
+
+[rarity]
+# Drop-rarity tiers by the game's reroll chance (same cut-offs as lastepochtools' labels):
+# below `uncommon` = common, etc. Applies to set items too.
+uncommon = 0.25
+rare = 0.50
+very_rare = 0.75
+extremely_rare = 0.95
+
+# --- always-show affix rules: placed at the very top of the filter ------------------
+# Items with any affix from these in-game affix-picker categories (any tier, any rarity).
+# Same rule options as below except LP/WW; categories are the picker's headers.
+
+[[affix_rule]]
+name = "ALWAYS SHOW - PERSONAL & VARIANT AFFIXES"
+affix_categories = ["Personal", "Variant"]
+emphasized = true
+
+# --- new-filter template -------------------------------------------------------------
+# templates/New filter.xml is what the editor's "New" starts from (and `build`'s base). It is
+# generated from these parts, top to bottom: the [[affix_rule]]s, the BiS section, the
+# exalted rules plus a show-all-legendary rule under one header, the [class_hide] rules, the
+# shatter section, the unique / set groups, and a bottom rule hiding everything else (it
+# never hides shards, runes, glyphs or keys: the game only applies rules made of non-equipment
+# conditions to those). Edit the template in the editor; "Rebuild template" regenerates it
+# from here. BiS / exalted / legendary / shatter / hide rules get no rule_prefix: they belong
+# to the filter, so refreshing the [A] rules leaves them alone.
+
+[starter]
+header = "------ EXALTED & LEGENDARY ------"
+legendary = { name = "SHOW ALL LEGENDARY ITEMS", color = 7, emphasized = true }
+hide_rest = { name = "HIDE EVERYTHING ELSE" }
+
+# BiS section (above the exalted rules, so it decides first): per slot a rule for its item
+# type with the build's affixes (the Leveling tab's toggles; weapons/off-hands: one rule per
+# type the build uses) at `tier`+, `min` of them on the item. Bases are left unpicked (every
+# base matches): choose the right ones per build. Plus an idol altar rule with every altar
+# affix. Rule options give the section its look.
+[bis]
+header = "------ BIS ITEMS (pick the bases) ------"
+tier = 7
+min = 1
+altar = true
+color = 9
+emphasized = true
+beam_size = "LARGEST"
+beam_color = 12
+
+# Shatter section: gear only (idols can't be shattered), magic / rare / exalted. One rule for
+# non-class affixes that rarely roll (roll weighting <= max_weight: Hybrid Health 0.1, the
+# "X and minion X penetration" ones 0.15; `include` adds more by name) at general_tier+, and
+# one per class for its class-specific affixes at class_tier+ (the chosen class's one on).
+[shatter]
+header = "------ SHATTER AFFIXES ------"
+max_weight = 0.15
+include = []
+general_tier = 1
+class_tier = 3
+color = 16
+
+# Generic exalted rules: items with `min` ordinary gear affixes of at least tier `tier`
+# (whose tiers add up to at least `total`, if given); uncorrupted = only uncorrupted items.
+# Rule options as above. T8 comes first: those items would otherwise be caught as T7+.
+
+[[exalted_rule]]
+name = "ALL T8 ITEMS"
+min = 1
+tier = 8
+color = 10
+emphasized = true
+beam_size = "LARGE"
+beam_color = 13
+
+[[exalted_rule]]
+name = "EXALTED - DOUBLE T7"
+min = 2
+tier = 7
+uncorrupted = true
+color = 7
+emphasized = true
+
+[[exalted_rule]]
+name = "EXALTED - T7 + T6"
+min = 2
+tier = 6
+total = 13
+uncorrupted = true
+color = 7
+enabled = false
+
+[[exalted_rule]]
+name = "EXALTED - SINGLE T7"
+min = 1
+tier = 7
+uncorrupted = true
+color = 8
+
+# --- class item hide rules -----------------------------------------------------------
+# One hide rule per class for class-specific items only the OTHER four classes can use,
+# e.g. "[A] Hide non-Sentinel class non-legendary items". Placed directly above the
+# separator heading the generated block (in the template: right after the exalted rules),
+# so it also keeps those items out of the leveling rules below. All start disabled: in a
+# build's copy of the template, enable the one for its class.
+
+[class_hide]
+add = true
+name = "Hide non-{class} class non-legendary items"   # rule_prefix goes in front
+rarity = ["NORMAL", "MAGIC", "RARE"]
+enabled_for = []          # classes whose rule starts enabled, e.g. ["Sentinel"]
+
+# --- any LP-capable unique with 3+ LP, regardless of group -------------------------
+
+[[group]]
+name = "ANY UNIQUE"
+header = "------- UNIQUES -------"
+build_slot = false   # a slot here would sit above every other section and override them
+categories = ["common", "uncommon", "rare", "very_rare", "extremely_rare", "special", "primordial"]
+rules = [
+  { lp_min = 3, color = 7, emphasized = true },
+]
+
+# --- Weaver's Will uniques: filtered by WW, not LP ----------------------------------
+
+[[group]]
+name = "WEAVER PICKS"
+header = "--- WEAVER'S WILL ---"
+# Build-defining Weaver's Will uniques to highlight at any WW, e.g. ["Clotho's Needle"]
+only = []
+rules = [
+  { label = "any WW", color = 3, emphasized = true },
+]
+
+[[group]]
+name = "WEAVER"
+categories = ["weaver"]
+rules = [
+  { ww_min = 17, color = 2, emphasized = true },
+  { ww_max = 16, color = 2 },
+]
+
+# --- random drops: rare and rarer show all with a 1+ LP split; -----------------------
+# --- common / uncommon split at LPL 60 and filtered by LP ----------------------------
+# The 0LP rules for common / uncommon are disabled: those uniques fall through to the
+# rules below the generated block (in the template the bottom "hide everything" rule).
+
+[[group]]
+name = "EXTREMELY RARE"
+header = "--- RANDOM DROPS ---"
+categories = ["extremely_rare"]
+rules = [
+  { lp_min = 1, color = 7, emphasized = true },
+  { label = "0LP+", color = 7 },
+]
+
+[[group]]
+name = "VERY RARE"
+categories = ["very_rare"]
+rules = [
+  { lp_min = 1, color = 6, emphasized = true },
+  { label = "0LP+", color = 6 },
+]
+
+[[group]]
+name = "RARE"
+categories = ["rare"]
+rules = [
+  { lp_min = 1, color = 6, emphasized = true },
+  { label = "0LP+", color = 6 },
+]
+
+[[group]]
+name = "UNCOMMON LPL 60+"
+categories = ["uncommon"]
+lpl_min = 60
+rules = [
+  { lp_min = 2, color = 5, emphasized = true },
+  { lp_min = 1, color = 5 },
+  { label = "0LP+", color = 5, enabled = false },
+]
+
+[[group]]
+name = "UNCOMMON LPL 0-59"
+categories = ["uncommon"]
+lpl_max = 59
+rules = [
+  { lp_min = 2, color = 5 },
+  { lp_min = 1, color = 5 },
+  { label = "0LP+", color = 5, enabled = false },
+]
+
+[[group]]
+name = "COMMON LPL 60+"
+categories = ["common"]
+lpl_min = 60
+rules = [
+  { lp_min = 2, color = 4, emphasized = true },
+  { lp_min = 1, color = 4 },
+  { label = "0LP+", color = 4, enabled = false },
+]
+
+[[group]]
+name = "COMMON LPL 0-59"
+categories = ["common"]
+lpl_max = 59
+rules = [
+  { lp_min = 2, color = 3 },
+  { lp_min = 1, color = 3 },
+  { label = "0LP+", color = 3, enabled = false },
+]
+
+# --- non-random uniques (bosses, timelines, quests ...), split at LPL 60 -------------
+
+[[group]]
+name = "SPECIAL LPL 60+"
+header = "--- NON-RANDOM DROPS ---"
+categories = ["special"]
+lpl_min = 60
+rules = [
+  { lp_min = 2, color = 7, emphasized = true },
+  { lp_min = 1, color = 2, emphasized = true },
+  { label = "0LP+", color = 2 },
+]
+
+[[group]]
+name = "SPECIAL LPL 0-59"
+categories = ["special"]
+lpl_max = 59
+rules = [
+  { lp_min = 2, color = 7, emphasized = true },
+  { lp_min = 1, color = 2 },
+  { label = "0LP+", color = 2 },
+]
+
+# --- other unique families ------------------------------------------------------------
+
+[[group]]
+name = "PRIMORDIAL"
+header = "--- PRIMORDIAL / COCOONED ---"
+categories = ["primordial"]
+rules = [
+  { lp_min = 1, color = 5, emphasized = true },
+  { label = "0LP+", color = 5 },
+]
+
+[[group]]
+name = "COCOONED"
+categories = ["cocooned"]
+rules = [
+  { label = "all", color = 1 },
+]
+
+# --- every unique idol the rules above let through (e.g. common 0LP ones) ----------
+
+[[group]]
+name = "UNIQUE IDOLS"
+categories = ["common", "uncommon", "rare", "very_rare", "extremely_rare", "special", "primordial", "cocooned", "weaver"]
+base_types = ["IDOLS"]
+rules = [
+  { label = "show all" },
+]
+
+# --- set items: no LP, so only drop rarity matters (game's default set colour) -------
+
+[[group]]
+name = "SET RARE+"
+header = "------- SET ITEMS -------"
+build_slot = { color = 16, emphasized = true }
+categories = ["set_rare", "set_very_rare", "set_extremely_rare"]
+rules = [
+  { label = "all", emphasized = true },
+]
+
+[[group]]
+name = "SET NON-RANDOM"
+categories = ["set_special"]
+rules = [
+  { label = "all", emphasized = true },
+]
+
+[[group]]
+name = "SET UNCOMMON"
+categories = ["set_uncommon"]
+rules = [
+  { label = "all" },
+]
+
+[[group]]
+name = "SET COMMON"
+categories = ["set_common"]
+rules = [
+  { label = "all" },
+]
+
+# --- leveling section: show rules for campaign gear that fits a rough build profile ---
+# Usually generated per build in the editor (python -m lefilter ui, "Leveling" tab), which
+# also shows what each toggle picks. With enabled = true, `build` adds it to the filter too
+# (directly under a separator named like LEVELING, else above the bottom hide rule).
+# `python -m lefilter leveling` prints what these settings generate.
+
+[leveling]
+enabled = false
+rule_prefix = "[L] "            # marks the section so it can be found and replaced
+header = "------- LEVELING (auto) -------"
+# Affix toggles. A damage type takes every affix named "<type> damage" / "<type> penetration"
+# (fire/cold/lightning include elemental); a focus its keyword; a defence toggle its category.
+#   damage:  physical, fire, cold, lightning, void, necrotic, poison
+#   focus:   melee, spell, throwing, bow, minion, crit, dot, ailments
+#   defence: health, resistances, armour, dodge, block, ward, mana, attributes, movement, sustain, cooldown
+damage = ["physical"]
+focus = ["melee"]
+defence = ["health", "resistances"]
+character_class = ""            # Primalist / Mage / Sentinel / Acolyte / Rogue: allows that class's affixes and bases
+# Weapon / off-hand types (in-game names or ONE_HANDED_SWORD style): their bases are batched
+# by level requirement into `step`-level windows; each window's rule is on from its first
+# character level until the next window starts, and everything is off from level `cap`.
+weapons = ["Two-Handed Sword"]
+offhands = []                   # Shield, Quiver, Off-Hand Catalyst
+step = 10
+cap = 60
+weapon_mode = "highlight"       # highlight: build-affix rule + plain base rule; require: affix rule only; bases: base only
+armour = true                   # helmet/body/belt/boots/gloves with gear_min_affixes+ build affixes
+jewelry = true                  # amulet/ring/relic, same
+gear_min_affixes = 2
+single_affix_until = 30         # ...and with just 1 build affix below this character level (0 = never)
+rarity = ["MAGIC", "RARE", "EXALTED"]
+# Looks per rule kind (rule options as above): weapon_affix, weapon_base, gear, gear_single
+style = { weapon_affix = { color = 14, emphasized = true }, gear = { color = 13, emphasized = true } }

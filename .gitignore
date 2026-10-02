@@ -1,0 +1,13 @@
+.venv/
+.cache/
+out/
+__pycache__/
+.pytest_cache/
+build/
+dist/
+
+# Produced from the user's own game install - never committed or shipped (game EULA).
+data/
+schema/
+templates/
+game_dir.txt

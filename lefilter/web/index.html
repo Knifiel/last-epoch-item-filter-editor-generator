@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Last Epoch Item Filter Editor</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Last Epoch <span>item filter editor</span></div>
+  <select id="file-select" title="Filter to edit"></select>
+  <button id="btn-new" title="Start a new filter from the template">New</button>
+  <button id="btn-reload" title="Reload the file from disk (drops unsaved changes)">Reload</button>
+  <button id="btn-save" class="primary" title="Save (Ctrl+S)">Save</button>
+  <button id="btn-saveas" title="Save under a new name">Save as…</button>
+  <button id="btn-delete" class="danger" title="Delete this filter file (asks first; a backup copy is kept)">Delete</button>
+  <button id="btn-undo" title="Undo (Ctrl+Z)">↶</button>
+  <button id="btn-redo" title="Redo (Ctrl+Y)">↷</button>
+  <div class="spacer"></div>
+  <select id="lang-select" title="Language of the game's names: items, uniques, affixes and their values (the editor itself stays English)"></select>
+  <div id="status" class="status"></div>
+</header>
+<nav class="tabs">
+  <button data-tab="rules" class="active">Rules</button>
+  <button data-tab="leveling">Leveling generator</button>
+  <button data-tab="idols">Idol generator</button>
+  <button data-tab="test">Test an item</button>
+  <div class="spacer"></div>
+  <button id="hdr-icon" title="Filter icon and colour (shown in the game's filter list)"></button>
+  <label class="header-field">Filter name <input id="hdr-name" size="28"></label>
+  <label class="header-field">Description <input id="hdr-desc" size="34"></label>
+</nav>
+<main>
+  <section id="tab-rules" class="tab active">
+    <div class="split">
+      <div class="pane list-pane">
+        <div class="toolbar">
+          <button id="btn-add" title="Add a rule below the selected one">+ Rule</button>
+          <button id="btn-dup" title="Duplicate the selected rule">Duplicate</button>
+          <button id="btn-del" title="Delete the selected rule">Delete</button>
+          <button id="btn-up" title="Move up">▲</button>
+          <button id="btn-down" title="Move down">▼</button>
+          <button id="btn-refresh" title="Regenerate the generated [A] rules (unique/set groups, class hide rules, always-show affixes) from config.toml and the current game data. Keeps their on/off state and filled build slots.">↻ [A] rules</button>
+          <input id="search" type="search" placeholder="Filter rules by name…">
+        </div>
+        <div class="toolbar level-preview">
+          <label><input type="checkbox" id="lvl-on"> Preview at character level</label>
+          <input type="range" id="lvl-range" min="1" max="100" value="1">
+          <input type="number" id="lvl-num" min="1" max="100" value="1">
+          <span class="hint">rules switched off at that level are dimmed</span>
+        </div>
+        <div class="list-head"><span>#</span><span>on</span><span></span><span>rule (top = highest priority)</span></div>
+        <ol id="rule-list" class="rule-list"></ol>
+      </div>
+      <div class="pane editor-pane" id="editor"></div>
+    </div>
+  </section>
+
+  <section id="tab-leveling" class="tab">
+    <div class="split">
+      <div class="pane form-pane" id="lev-form"></div>
+      <div class="pane" id="lev-preview"></div>
+    </div>
+  </section>
+
+  <section id="tab-idols" class="tab">
+    <div class="split">
+      <div class="pane form-pane" id="idol-list"></div>
+      <div class="pane" id="idol-editor"></div>
+    </div>
+  </section>
+
+  <section id="tab-test" class="tab">
+    <div class="split">
+      <div class="pane form-pane" id="test-form"></div>
+      <div class="pane" id="test-result"></div>
+    </div>
+  </section>
+</main>
+<dialog id="dlg"></dialog>
+<script src="/static/app.js"></script>
+</body>
+</html>
