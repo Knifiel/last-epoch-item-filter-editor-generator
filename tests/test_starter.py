@@ -157,15 +157,16 @@ def test_bis_rules_per_slot_with_build_affixes_and_no_bases():
     rules = plan_bis(FULL_CONFIG, FULL, BUILD)
     names = [r.name for r in rules]
     assert names[0].startswith("------ BIS") and names[1] == "BIS - Two Handed Sword (pick bases)"
-    assert names[-1] == "BIS - Idol Altar (pick bases & affixes)" and len(rules) == 1 + 1 + 8 + 1
-    sword, helmet, altar = rules[1], rules[2], rules[-1]
+    assert len(rules) == 1 + 1 + 8 and not any(r.item_types == ["IDOL_ALTAR"] for r in rules)   # altars: idol section
+    old_config = {**FULL_CONFIG, "bis": {**FULL_CONFIG["bis"], "altar": True}}   # a v0.1.0 config.toml still loads
+    assert [r.name for r in plan_bis(old_config, FULL, BUILD)] == names
+    sword, helmet = rules[1], rules[2]
     assert sword.item_types == ["TWO_HANDED_SWORD"] and sword.sub_types == [] and sword.affix_ids == [30, 719]
     assert set(helmet.affix_ids) == {30, 25, 36, 719} and helmet.affix_tier == 7
     assert sword.spec.color == 9 and sword.spec.emphasized and sword.spec.beam_size == "LARGEST"
-    assert altar.item_types == ["IDOL_ALTAR"] and altar.affix_ids == [1088]
     bare = plan_bis(FULL_CONFIG, FULL, {})
     assert bare[1].name == "BIS - Weapon (pick type & bases)" and bare[1].item_types == []
-    assert not any(r.spec.enabled for r in bare[1:-1])          # nothing to go on yet: switched off
+    assert not any(r.spec.enabled for r in bare[1:])            # nothing to go on yet: switched off
 
 
 def test_shatter_rules():
@@ -190,8 +191,7 @@ def test_new_from_template_applies_class_and_build(tmp_path):
     assert ensure_template(path, FULL_CONFIG, FULL) and not ensure_template(path, FULL_CONFIG, FULL)
     template = make_template(FULL_CONFIG, FULL)
     bis = [r for r in template["rules"] if r["name"].startswith("BIS - ")]
-    assert not any(r["enabled"] for r in bis if "Idol Altar" not in r["name"])   # no build yet: off
-    assert [r["enabled"] for r in bis if "Idol Altar" in r["name"]] == [True]     # altar affixes need no build
+    assert bis and not any(r["enabled"] for r in bis)   # no build yet: off
     assert not any(r["enabled"] for r in template["rules"] if r["name"].startswith(("[A] Hide non-", "SHATTER - ")) and "RARE-ROLL" not in r["name"])
     next(r for r in template["rules"] if r["name"] == "ALL T8")["color"] = 3   # template edits carry over
     doc = new_from_template(FULL_CONFIG, FULL, template, {"name": "Sentinel", "character_class": "Sentinel",

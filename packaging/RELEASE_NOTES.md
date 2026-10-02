@@ -3,6 +3,29 @@
 Edit Last Epoch loot filters outside the game, and generate rules for uniques, leveling, idols,
 BiS items, shattering and more - straight from your own game installation.
 
+### What's new in v0.2.0
+
+- **Leveling: jewelry and belts** with a build affix now show until the leveling cap (60)
+  instead of switching off at 30. Belts moved from the armour rules to the jewelry ones.
+- **Leveling: good bases** for every slot (weapons, off-hands, armour, jewelry, belts). Pick them
+  in the Leveling tab; each slot's good bases get their own rule above the rest, with a stronger
+  look, that stays on until the cap. Defaults: the jewelry and belt bases with resistance
+  implicits that Raxxanterax's S5 filter picks for the campaign (Gold Ring, Bone and Gold
+  Amulet, Spidersilk Sash, a few class relics).
+- **Leveling: attribute toggles** (strength, dexterity, intelligence, attunement, vitality). They
+  count like damage stats, also on weapons, and each adds the two-hander-only All Attributes.
+- **Idols and Idol Altars generator**: the idol tab now also makes the idol altar rules - your
+  preferred altars with your preferred altar affixes (with a beam), and below them a plainer
+  rule for every other altar. The BiS section no longer has an altar rule.
+- **Free up rules…** (Rules tab) for the 200-rule limit: remove section separators, the campaign
+  leveling rules, or the rules for the most common uniques at 0-2 LP - with a preview, and
+  Ctrl+Z to undo.
+
+Upgrading from v0.1.0: your settings keep working. The `config.toml` in the program's folder
+isn't replaced, so the new options use their defaults; delete it to get the new default with the
+new options described. *Rebuild template* (New dialog) gives the new-filter template the new
+layout.
+
 ### Download
 
 - **Windows**: `LastEpochItemFilterEditor-windows.zip` - unzip it anywhere and double-click

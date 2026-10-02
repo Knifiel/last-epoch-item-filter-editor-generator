@@ -162,6 +162,7 @@ main { flex: 1; min-height: 0; }
 .gen-rules li { display: flex; gap: 8px; align-items: center; padding: 2px 0; border-bottom: 1px solid #221d25; }
 details { margin: 4px 0; }
 summary { cursor: pointer; }
+.good-bases > .chips { margin: 4px 0 8px 14px; }
 .affix-names { color: var(--muted); font-size: 12px; margin: 2px 0 6px 16px; }
 .box { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin: 8px 0; }
 

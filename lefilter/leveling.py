@@ -2,15 +2,20 @@
 
 Toggles pick affixes by name: a damage type takes every ordinary gear affix whose name
 contains "<type> damage" / "<type> penetration", a build focus its keyword ("minion",
-"throwing", ...), a defence toggle its picker category. Only ordinary affixes that
-can roll on the item types of a rule are used (no set, corrupted, experimental,
-personal or idol affixes; class-specific ones only for the chosen class).
+"throwing", ...), an attribute its own affix plus the two-hander-only All Attributes, a
+defence toggle its picker category. Only ordinary affixes that can roll on the item types
+of a rule are used (no set, corrupted, experimental, personal or idol affixes;
+class-specific ones only for the chosen class).
 
 Weapons (and off-hands) are the core: for every selected type the droppable bases below
 the level cap are grouped into batches of `step` levels by level requirement. Each batch
 gets a rule active from the character level its batch starts at until the next batch
 takes over (so exactly one batch of a type is shown at any level, and nothing after the
-cap). Armour and jewelry get one rule per slot group for items with enough build affixes.
+cap). Armour gets one rule for items with enough build affixes. For jewelry and belts the
+base matters little (their best bases come early), so every one with a build affix is
+shown until the cap. On top of all that, each slot's good bases (picked per build; by
+default the jewelry and belt bases with resistance implicits) get their own rule: still
+needing a build affix, but on from level 0 until the cap, where the BiS rules take over.
 
 Ordering convention: index 0 is the TOP of the in-game list.
 """
@@ -28,7 +33,7 @@ from .rules import RULE_KEYS, ConfigError, Rule, RuleSpec, _check_keys
 class Toggle:
     key: str
     label: str
-    group: str                          # damage | focus | defence
+    group: str                          # damage | focus | attributes | defence
     phrases: tuple[str, ...] = ()       # lower-case substrings of the affix name
     categories: tuple[str, ...] = ()    # affix-picker categories taken whole
     exclude: tuple[str, ...] = ()       # lower-case substrings that disqualify
@@ -37,6 +42,11 @@ class Toggle:
 def _damage(key: str, label: str, also: tuple[str, ...] = ()) -> Toggle:
     words = (key, *also)
     return Toggle(key, label, "damage", tuple(p for w in words for p in (f"{w} damage", f"{w} penetration")))
+
+
+def _attribute(key: str) -> Toggle:
+    # All Attributes (two-handed weapons only) counts for every attribute
+    return Toggle(key, key.capitalize(), "attributes", (key, "all attributes"))
 
 
 TOGGLES = (
@@ -55,6 +65,7 @@ TOGGLES = (
     Toggle("crit", "Critical strike", "focus", ("crit",), exclude=("avoidance", "reduced bonus damage")),
     Toggle("dot", "Damage over time", "focus", ("damage over time",)),
     Toggle("ailments", "Ailment chance", "focus", categories=("Ailments",), exclude=("attackers",)),
+    *(_attribute(a) for a in ("strength", "dexterity", "intelligence", "attunement", "vitality")),
     Toggle("health", "Health", "defence", categories=("Health",)),
     Toggle("resistances", "Resistances", "defence", ("resistance",), categories=(), exclude=("minion",)),
     Toggle("armour", "Armour", "defence", ("armor", "endurance"), exclude=("minion", "shred")),
@@ -62,31 +73,47 @@ TOGGLES = (
     Toggle("block", "Block", "defence", categories=("Block",)),
     Toggle("ward", "Ward", "defence", categories=("Ward",)),
     Toggle("mana", "Mana", "defence", categories=("Mana",)),
-    Toggle("attributes", "Attributes", "defence", categories=("Attributes",)),
     Toggle("movement", "Movement speed", "defence", categories=("Movement",)),
     Toggle("sustain", "Health regen / leech", "defence", categories=("Health Recovery", "Leech")),
     Toggle("cooldown", "Cooldown recovery", "defence", categories=("Cooldown",)),
 )
 TOGGLE_BY_KEY = {t.key: t for t in TOGGLES}
+GROUPS = ("damage", "focus", "attributes", "defence")
 DELIVERY = ("melee", "spell", "bow", "throwing")   # how a hit is dealt; narrows damage-type picks
 CLASS_CATEGORIES = set(CLASSES)                    # picker categories holding class-specific affixes
 WEAPON_MODES = ("highlight", "require", "bases")
+GEAR_ARMOUR = tuple(t for t in ARMOUR_TYPES if t != "BELT")
+GEAR_JEWELRY = ("BELT", *JEWELRY_TYPES)            # belts behave like jewelry: few bases worth picking
+GEAR_TYPES = (*WEAPON_TYPES, *OFFHAND_TYPES, *GEAR_ARMOUR, *GEAR_JEWELRY)
+# Default good bases (any gear type can have some): the jewelry and belt bases Raxxanterax's
+# S5 filter picks for the campaign, mostly resistance implicits. Class bases (relics,
+# class weapons) count only for the chosen class.
+GOOD_BASES = {
+    "BELT": ["Spidersilk Sash"],
+    "AMULET": ["Bone Amulet", "Gold Amulet"],
+    "RING": ["Gold Ring"],
+    "RELIC": ["Spirit Catcher", "Scrying Eye", "Rune Quill", "Argent Crest", "Putrid Souls", "Ancient Coins",
+              "Ruby Dice", "Antidote Vial"],
+}
 
 STYLE_DEFAULTS = {
     "weapon_affix": {"color": 14, "emphasized": True},   # batch base with a build affix
     "weapon_base": {},                                   # batch base without one (rarity colour)
-    "gear": {"color": 13, "emphasized": True},           # armour / jewelry with enough build affixes
+    "gear": {"color": 13, "emphasized": True},           # armour with enough build affixes
     "gear_single": {},                                   # ... with one build affix, early levels only
+    "jewelry": {"color": 13},                            # jewelry / belt with a build affix
+    "good_base": {"color": 15, "emphasized": True},      # any slot's good base, until the cap
 }
-OPTION_KEYS = {"enabled", "damage", "focus", "defence", "weapons", "offhands", "armour", "jewelry",
+OPTION_KEYS = {"enabled", "damage", "focus", "attributes", "defence", "weapons", "offhands", "armour", "jewelry",
                "character_class", "step", "cap", "weapon_mode", "rarity", "gear_min_affixes",
-               "single_affix_until", "rule_prefix", "header", "style"}
+               "single_affix_until", "good_bases", "rule_prefix", "header", "style"}
 
 
 @dataclass
 class LevelingOptions:
     damage: list[str] = field(default_factory=list)
     focus: list[str] = field(default_factory=list)
+    attributes: list[str] = field(default_factory=list)
     defence: list[str] = field(default_factory=list)
     weapons: list[str] = field(default_factory=list)      # EquipmentType names (weapons and off-hands)
     offhands: list[str] = field(default_factory=list)
@@ -98,7 +125,8 @@ class LevelingOptions:
     weapon_mode: str = "highlight"   # highlight: affix rule + plain base rule; require: affix rule only; bases: base only
     rarity: list[str] = field(default_factory=lambda: ["MAGIC", "RARE", "EXALTED"])
     gear_min_affixes: int = 2
-    single_affix_until: int = 30     # armour/jewelry with 1 build affix are shown below this level (0 = never)
+    single_affix_until: int = 30     # armour with 1 build affix is shown below this level (0 = never)
+    good_bases: dict = field(default_factory=lambda: {t: list(b) for t, b in GOOD_BASES.items()})
     rule_prefix: str = "[L] "
     header: str = "------- LEVELING (auto) -------"
     style: dict = field(default_factory=dict)
@@ -123,11 +151,30 @@ def _type_aliases(bases: list[dict]) -> dict[str, str]:
     return aliases
 
 
+def _good_bases(table: dict, bases: list[dict], aliases: dict[str, str]) -> dict[str, list[str]]:
+    """good_bases (item type -> base names) over the defaults, names spelled as the game does.
+    Unknown names are kept: planning warns about them (a patch may rename a default)."""
+    if not isinstance(table, dict) or not all(isinstance(v, list) for v in table.values()):
+        raise ConfigError("[leveling] good_bases must be a table of item type -> list of base names")
+    by_type = {b["type"]: b for b in bases}
+    out = {t: list(b) for t, b in GOOD_BASES.items()}
+    for key, names in table.items():
+        t = key if key in GEAR_TYPES else aliases.get(_norm(key))
+        if t not in GEAR_TYPES:
+            raise ConfigError(f"[leveling] good_bases: {key!r} isn't a weapon, off-hand, armour or jewelry type")
+        known = {_norm(s["name"]): s["name"] for s in by_type[t]["subtypes"]} if t in by_type else {}
+        out[t] = list(dict.fromkeys(known.get(_norm(n), n) for n in names))
+    return out
+
+
 def parse_options(table: dict, bases: list[dict]) -> LevelingOptions:
     """A [leveling] config table (or the editor's JSON) -> validated options."""
     _check_keys(table, OPTION_KEYS, "[leveling]")
     opts = LevelingOptions(**{k: v for k, v in table.items() if k != "enabled"})
-    for group in ("damage", "focus", "defence"):
+    if "attributes" in opts.defence:   # the old all-attributes defence toggle
+        opts.defence = [k for k in opts.defence if k != "attributes"]
+        opts.attributes = [t.key for t in TOGGLES if t.group == "attributes"]
+    for group in GROUPS:
         known = [t.key for t in TOGGLES if t.group == group]
         bad = [k for k in getattr(opts, group) if k not in known]
         if bad:
@@ -141,6 +188,7 @@ def parse_options(table: dict, bases: list[dict]) -> LevelingOptions:
                 raise ConfigError(f"[leveling] {attr}: unknown item type {name!r}; known: {', '.join(allowed)}")
             resolved.append(t)
         setattr(opts, attr, list(dict.fromkeys(resolved)))
+    opts.good_bases = _good_bases(opts.good_bases, bases, aliases)
     if opts.character_class and opts.character_class not in CLASSES:
         raise ConfigError(f"[leveling] character_class must be one of {', '.join(CLASSES)} (or empty)")
     if opts.weapon_mode not in WEAPON_MODES:
@@ -182,7 +230,7 @@ def toggle_affixes(opts: LevelingOptions, affixes: list[dict]) -> dict[str, list
     pool = gear_affixes(affixes, opts.character_class)
     delivery = [d for d in DELIVERY if d in opts.focus]
     picked = {}
-    for key in (*opts.damage, *opts.focus, *opts.defence):
+    for key in (*opts.damage, *opts.focus, *opts.attributes, *opts.defence):
         t = TOGGLE_BY_KEY[key]
         chosen = [a for a in pool if _matches(t, a)]
         if delivery and key not in DELIVERY and key != "minion":
@@ -199,9 +247,9 @@ def _union(groups: list[list[dict]]) -> list[dict]:
 
 
 def build_affixes(opts: LevelingOptions, affixes: list[dict]) -> tuple[list[dict], list[dict]]:
-    """(offense: damage + focus picks - what weapons use, everything: + defence - the other slots)."""
+    """(offense: damage + focus + attribute picks - what weapons use, everything: + defence - the other slots)."""
     picked = toggle_affixes(opts, affixes)
-    return _union([picked[k] for k in (*opts.damage, *opts.focus)]), _union(list(picked.values()))
+    return _union([picked[k] for k in (*opts.damage, *opts.focus, *opts.attributes)]), _union(list(picked.values()))
 
 
 # --- rules ------------------------------------------------------------------------
@@ -222,11 +270,25 @@ class LevelingPlan:
     warnings: list[str]
 
 
+def _class_ok(sub: dict, character_class: str) -> bool:
+    bit = CLASS_BITS.get(character_class, 0)
+    return not sub["class"] or bool(bit and sub["class"] & bit)
+
+
+def good_subtypes(base: dict, names: list[str], character_class: str = "") -> tuple[list[int], list[str]]:
+    """(ids of the named bases of an item type, names it doesn't have); class bases only for the
+    chosen class (all of them without one)."""
+    wanted = {_norm(n) for n in names}
+    ids = [s["id"] for s in base["subtypes"]
+           if _norm(s["name"]) in wanted and (not character_class or _class_ok(s, character_class))]
+    found = {_norm(s["name"]) for s in base["subtypes"]}
+    return ids, [n for n in names if _norm(n) not in found]
+
+
 def level_windows(subtypes: list[dict], step: int, cap: int, character_class: str = "") -> list[Window]:
     """Droppable bases below `cap`, batched by level requirement; each batch is shown from the
     level its batch starts at (0 for the first) until the next non-empty batch starts."""
-    bit = CLASS_BITS.get(character_class, 0)
-    usable = [s for s in subtypes if s["drops"] and s["level"] < cap and (not s["class"] or (bit and s["class"] & bit))]
+    usable = [s for s in subtypes if s["drops"] and s["level"] < cap and _class_ok(s, character_class)]
     batches: dict[int, list[dict]] = {}
     for s in sorted(usable, key=lambda s: (s["level"], s["id"])):
         batches.setdefault(s["level"] // step * step, []).append(s)
@@ -246,6 +308,7 @@ def plan_leveling(opts: LevelingOptions, data: dict) -> LevelingPlan:
     windows: dict[str, list[Window]] = {}
     rule_affixes: dict[str, list[dict]] = {}
     warnings: list[str] = []
+    slots: dict[str, list[dict] | None] = {}   # item type in use -> build affixes its items need (None: any)
 
     def add(rule: Rule, affixes: list[dict] | None = None) -> None:
         rules.append(rule)
@@ -264,6 +327,7 @@ def plan_leveling(opts: LevelingOptions, data: dict) -> LevelingPlan:
             if mode == "require":
                 warnings.append(f"{base['name']}: none of the selected affixes roll on it; showing bases only")
             mode = "bases"
+        slots[t] = eligible if mode != "bases" else None
         for w in wins:
             label = f"{p}{base['name']} {w.min}-{w.max}"
             common = dict(group="leveling", unique_ids=None, rarity=rarity, item_types=[t],
@@ -274,23 +338,56 @@ def plan_leveling(opts: LevelingOptions, data: dict) -> LevelingPlan:
             if mode in ("highlight", "bases"):
                 add(Rule(name=label, spec=opts.spec("weapon_base"), **common))
 
-    for enabled, label, types in ((opts.armour, "Armour", ARMOUR_TYPES), (opts.jewelry, "Jewelry", JEWELRY_TYPES)):
-        if not enabled:
-            continue
+    def rolling(types: tuple[str, ...]) -> list[dict]:
         ids = {bases[t]["id"] for t in types}
-        eligible = [a for a in everything if ids & set(a["rolls_on"])]
+        return [a for a in everything if ids & set(a["rolls_on"])]
+
+    last = opts.cap - 1
+    if opts.armour:
+        slots.update({t: rolling((t,)) for t in GEAR_ARMOUR})
+        eligible = rolling(GEAR_ARMOUR)
         if not eligible:
-            warnings.append(f"{label}: no selected affix rolls on it; no rule generated")
-            continue
-        n = opts.gear_min_affixes
-        common = dict(group="leveling", unique_ids=None, rarity=rarity, item_types=list(types),
-                      affix_ids=[a["id"] for a in eligible])
-        add(Rule(name=f"{p}{label} {n}+ build affixes 0-{opts.cap - 1}", spec=opts.spec("gear"), affix_min=n,
-                 char_level=(0, opts.cap - 1), **common), eligible)
-        until = min(opts.single_affix_until, opts.cap)
-        if n > 1 and until > 0:
-            add(Rule(name=f"{p}{label} 1 build affix 0-{until - 1}", spec=opts.spec("gear_single"), affix_min=1,
-                     char_level=(0, until - 1), **common), eligible)
+            warnings.append("Armour: no selected affix rolls on it; no rule generated")
+        else:
+            n = opts.gear_min_affixes
+            common = dict(group="leveling", unique_ids=None, rarity=rarity, item_types=list(GEAR_ARMOUR),
+                          affix_ids=[a["id"] for a in eligible])
+            add(Rule(name=f"{p}Armour {n}+ build affixes 0-{last}", spec=opts.spec("gear"), affix_min=n,
+                     char_level=(0, last), **common), eligible)
+            until = min(opts.single_affix_until, opts.cap)
+            if n > 1 and until > 0:
+                add(Rule(name=f"{p}Armour 1 build affix 0-{until - 1}", spec=opts.spec("gear_single"), affix_min=1,
+                         char_level=(0, until - 1), **common), eligible)
+
+    if opts.jewelry:
+        slots.update({t: rolling((t,)) for t in GEAR_JEWELRY})
+        eligible = rolling(GEAR_JEWELRY)
+        if not eligible:
+            warnings.append("Jewelry & belts: no selected affix rolls on them; no rule generated")
+        else:
+            add(Rule(name=f"{p}Jewelry & belts build affix 0-{last}", group="leveling", spec=opts.spec("jewelry"),
+                     unique_ids=None, rarity=rarity, item_types=list(GEAR_JEWELRY),
+                     affix_ids=[a["id"] for a in eligible], affix_min=1, char_level=(0, last)), eligible)
+
+    # Good bases on top, so they win over the windows and affix counts below: one rule per item
+    # type (a rule only takes bases for a single type), on from level 0 until the cap. Like the
+    # rest they need a build affix (only weapons in `bases` mode ignore affixes); after the cap
+    # the BiS rules take over.
+    good_rules = []
+    for t, pool in slots.items():
+        good, unknown = good_subtypes(bases[t], opts.good_bases.get(t, []), opts.character_class)
+        if unknown:
+            warnings.append(f"good_bases: {bases[t]['name']} has no bases named {', '.join(unknown)}")
+        if good and pool == []:
+            warnings.append(f"{bases[t]['name']} good bases: none of the build's affixes roll on it; no rule generated")
+        elif good:
+            good_rules.append(Rule(name=f"{p}{bases[t]['name']} good bases{' build affix' if pool else ''} 0-{last}",
+                                   group="leveling", spec=opts.spec("good_base"), unique_ids=None, rarity=rarity,
+                                   item_types=[t], sub_types=good, affix_ids=[a["id"] for a in pool] if pool else None,
+                                   char_level=(0, last)))
+            if pool:
+                rule_affixes[good_rules[-1].name] = pool
+    rules[:0] = good_rules
 
     if rules and opts.header:
         rules.insert(0, Rule(name=f"{p}{opts.header}", group="leveling", spec=RuleSpec(action="hide", enabled=False),

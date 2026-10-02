@@ -28,7 +28,7 @@ from .sections import doc_infos, place
 
 PARTS = {
     "personal": "Always show personal & variant affixes ([[affix_rule]])",
-    "bis": "BiS section: build affixes per slot + idol altars - pick the bases yourself ([bis])",
+    "bis": "BiS section: build affixes per slot - pick the bases yourself ([bis])",
     "exalted": "Generic exalted rules, T8 first ([[exalted_rule]])",
     "legendary": "Show all legendary items",
     "class_hide": "Class item hide rules (the chosen class's one enabled)",
@@ -42,6 +42,8 @@ EXALTED_KEYS = LOOK_KEYS | {"name", "min", "tier", "total", "uncorrupted"}
 STARTER_KEYS = {"header", "legendary", "hide_rest"}
 GEAR_TYPES = WEAPON_TYPES + OFFHAND_TYPES + ARMOUR_TYPES + JEWELRY_TYPES
 GEAR_TYPE_IDS = {TYPE_IDS[t] for t in GEAR_TYPES}
+# "altar" is obsolete (idol altars moved to the idol section) but still accepted: the packaged app
+# keeps the config.toml copied on its first run, so v0.1.0 users' configs still have it.
 BIS_KEYS = LOOK_KEYS | {"header", "tier", "min", "altar"}
 SHATTER_KEYS = LOOK_KEYS | {"header", "max_weight", "include", "general_tier", "class_tier"}
 
@@ -86,7 +88,7 @@ def plan_bis(config: dict, data: dict, build: dict, character_class: str = "") -
     """[bis]: per slot a rule for its item type with the build's affixes at `tier`+ (`min` of
     them). Bases stay unpicked (every base matches) - choose the right ones in the editor or
     in-game. Weapons / off-hands get one rule per type the build uses (a rule can only list
-    bases for a single type), plus an idol altar rule with every altar affix."""
+    bases for a single type). Idol altars belong to the idol section."""
     cfg = config.get("bis", {})
     spec = _look(cfg, BIS_KEYS, "[bis]")
     tier, n = cfg.get("tier", 7), cfg.get("min", 1)
@@ -111,9 +113,6 @@ def plan_bis(config: dict, data: dict, build: dict, character_class: str = "") -
         rules.append(rule("BIS - Weapon (pick type & bases)", [], offense, enabled=False))
     for t in ARMOUR_TYPES + JEWELRY_TYPES:
         rules.append(rule(f"BIS - {names[t]} (pick bases)", [t], [a for a in everything if TYPE_IDS[t] in a["rolls_on"]]))
-    if cfg.get("altar", True):
-        altar = [a["id"] for a in data["affixes"] if a["category"] == "Idol Altars" and not a["special"]]
-        rules.append(rule("BIS - Idol Altar (pick bases & affixes)", ["IDOL_ALTAR"], altar))
     return rules
 
 
@@ -311,7 +310,7 @@ def new_from_template(config: dict, data: dict, template: dict, options: dict) -
                             lev_opts.rule_prefix)
     if options.get("idols"):
         idol_opts = idols.parse_options(options["idols"])
-        plan = idols.plan_idols(idol_opts, idols.idol_kinds(data))
+        plan = idols.plan_idols(idol_opts, idols.idol_kinds(data), idols.altar_kind(data))
         warnings += plan.warnings
         if plan.rules:
             rules, _, _ = place(rules, doc_infos(rules), parse_rule_blocks([render_rule(r) for r in plan.rules]),

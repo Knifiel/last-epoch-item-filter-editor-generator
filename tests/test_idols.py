@@ -2,7 +2,7 @@ import pytest
 
 from lefilter.filterdoc import new_rule, parse_rule_blocks
 from lefilter.filterxml import render_rule
-from lefilter.idols import idol_kinds, parse_options, plan_idols, read_picks, shadowing_rules
+from lefilter.idols import altar_kind, idol_kinds, parse_options, plan_idols, read_picks, shadowing_rules
 from lefilter.matcher import Context, evaluate
 from lefilter.rules import ConfigError
 from lefilter.sections import doc_infos, place
@@ -28,6 +28,7 @@ BASES = [
     base(31, "IDOL_4x1", "Ornate Idol", [sub(2, "Ornate Solar Idol", cls=4)]),
     base(32, "IDOL_1x4", "Huge Idol", []),
     base(33, "IDOL_2x2", "Adorned Idol", [sub(2, "Adorned Rahyeh Idol", cls=4)]),
+    base(41, "IDOL_ALTAR", "Idol Altar", [sub(0, "Twisted Altar"), sub(1, "Jagged Altar"), sub(13, "Test Altar", drops=False)]),
 ]
 
 
@@ -47,6 +48,8 @@ AFFIXES = [
     affix(1070, "All Resistances for you and your Minions", range(25, 34), special=6, category="Corrupted"),
     affix(900, "Enchanted thing", (29,), special=4, category="Enchanted Idols"),
     affix(30, "Increased Physical Damage", (16,), category="Damage Type"),
+    affix(1088, "Maximum Idols Equipped", (41,), category="Idol Altars"),
+    affix(1104, "Maximum Idols Equipped", (41,), special=6, category="Idol Altars"),
 ]
 DATA = {"bases": BASES, "affixes": AFFIXES}
 KINDS = {k.key: k for k in idol_kinds(DATA)}
@@ -104,7 +107,7 @@ def test_picks_read_back_from_generated_rules():
     rules = parse_rule_blocks([render_rule(r) for r in plan_idols(opts, list(KINDS.values())).rules])
     got = read_picks([new_rule("mine")] + rules, "[I] ", list(KINDS.values()))
     assert got == {"found": True, "picks": {"IDOL_3x1/Sentinel/omen": {"affixes": [196, 197], "min": 1}},
-                   "hide_others": True}
+                   "hide_others": True, "altar": {"bases": [], "affixes": []}, "show_other_altars": True}
     assert read_picks([new_rule("mine")], "[I] ", list(KINDS.values()))["found"] is False
 
 
@@ -137,8 +140,43 @@ def test_section_goes_on_top_without_idol_separator_and_warns_about_shadowing():
     assert at == 2 and merged[2] == "[I] x"
 
 
+def test_idol_altar_rule_from_preferred_altars_and_affixes():
+    altar = altar_kind(DATA)
+    assert [b["id"] for b in altar.bases] == [0, 1]                      # droppable altars only
+    assert [(a["id"], a["group"]) for a in altar.pool] == [(1088, "Idol Altars"), (1104, "Corrupted (corrupted altars only)")]
+    kinds = list(KINDS.values())
+    both = plan_idols(parse_options({"altar": {"bases": [1], "affixes": [1088, 1104]}}), kinds, altar).rules
+    assert [r.name for r in both] == ["[I] ------- IDOLS (auto) -------",
+                                      "[I] Idol altar - preferred altars with 1+ of 2 preferred affixes",
+                                      "[I] Idol altar - all other altars"]
+    rule, others = both[1], both[2]
+    assert rule.item_types == ["IDOL_ALTAR"] and rule.sub_types == [1] and rule.affix_ids == [1088, 1104]
+    assert rule.rarity is None and rule.spec.emphasized and rule.spec.beam_size == "LARGE"
+    assert others.item_types == ["IDOL_ALTAR"] and others.sub_types == [] and others.affix_ids is None
+    assert others.spec.color == 15 and not others.spec.emphasized and others.spec.beam_size is None
+    only_bases = plan_idols(parse_options({"altar": {"bases": [0, 1], "affixes": []}, "show_other_altars": False}),
+                            kinds, altar).rules
+    assert len(only_bases) == 2 and only_bases[1].name == "[I] Idol altar - preferred altars"
+    assert only_bases[1].affix_ids is None
+    only_affixes = plan_idols(parse_options({"altar": {"bases": [], "affixes": [1088]}}), kinds, altar).rules[1]
+    assert only_affixes.sub_types == [] and only_affixes.affix_ids == [1088]
+    stale = plan_idols(parse_options({"altar": {"bases": [9], "affixes": []}}), kinds, altar)
+    assert stale.rules == [] and any("Idol altar" in w for w in stale.warnings)
+    assert plan_idols(parse_options({}), kinds, altar).rules == []
+    # read back, and rules above that show every altar shadow it
+    rules = parse_rule_blocks([render_rule(r) for r in both])
+    got = read_picks(rules, "[I] ", kinds)
+    assert got["altar"] == {"bases": [1], "affixes": [1088, 1104]} and got["show_other_altars"] is True
+    without = read_picks(parse_rule_blocks([render_rule(r) for r in only_bases]), "[I] ", kinds)
+    assert without["altar"]["bases"] == [0, 1] and without["show_other_altars"] is False
+    show_altars = new_rule("altars", conditions=[{"type": "SubTypeCondition", "types": ["IDOL_ALTAR"], "subtypes": []}])
+    assert shadowing_rules([show_altars], 1) == [] and shadowing_rules([show_altars], 1, altar=True) == ["#1 altars"]
+
+
 def test_option_errors():
     with pytest.raises(ConfigError, match="min must be 1 or 2"):
         parse_options({"picks": {"IDOL_2x1": {"affixes": [1], "min": 3}}})
     with pytest.raises(ConfigError, match="unknown key"):
         parse_options({"pick": {}})
+    with pytest.raises(ConfigError, match="idol altar"):
+        parse_options({"altar": {"base": []}})

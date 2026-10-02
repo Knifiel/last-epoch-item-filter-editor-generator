@@ -14,6 +14,10 @@ and its class restriction allows the idol: a class idol needs that class's bit, 
 all-class idol the NonSpecific bit (no restriction counts for both). Corrupted affixes are
 listed as their own group: only corrupted idols carry them.
 
+Idol altars get a rule of their own: the preferred altar bases with any of the preferred
+altar affixes (either side may be left open), with a beam; below it, optionally, a plainer
+rule showing every other altar.
+
 Ordering convention: index 0 is the TOP of the in-game list.
 """
 from __future__ import annotations
@@ -26,12 +30,15 @@ from .gamedata import (AFFIX_CLASS_BITS, AFFIX_NONSPECIFIC, CLASS_BITS, CLASS_ID
 from .rules import RULE_KEYS, ConfigError, Rule, RuleSpec, _check_keys
 
 IDOL_TYPES = COMMON_IDOL_TYPES + CLASS_IDOL_TYPES
+ALTAR_TYPE = "IDOL_ALTAR"
 WEAVER_SPECIAL, CORRUPTED_SPECIAL = 5, 6     # AffixList specialAffixType
 STYLE_DEFAULTS = {
     "both": {"color": 15, "emphasized": True},   # rules asking for 2 wanted affixes
     "single": {"color": 15},                     # rules asking for 1
+    "altar": {"color": 15, "emphasized": True, "beam_size": "LARGE", "beam_color": 19},   # the preferred idol altars
+    "altar_other": {"color": 15},                # every other altar
 }
-OPTION_KEYS = {"picks", "rule_prefix", "header", "hide_others", "style"}
+OPTION_KEYS = {"picks", "altar", "show_other_altars", "rule_prefix", "header", "hide_others", "style"}
 
 
 @dataclass
@@ -124,11 +131,37 @@ def _size_text(type_name: str) -> str:
     return f"{w}x{h}"
 
 
+@dataclass
+class AltarKind:
+    type_id: int
+    bases: list[dict]                 # droppable altars: [{"id", "name", "level"}]
+    pool: list[dict]                  # [{"id", "name", "group"}]
+
+
+def altar_kind(data: dict) -> AltarKind | None:
+    """Idol altar bases and the affixes they roll (corrupted ones as their own group)."""
+    base = next((b for b in data["bases"] if b["type"] == ALTAR_TYPE), None)
+    if not base:
+        return None
+    pool = []
+    for a in data["affixes"]:
+        if base["id"] not in a["rolls_on"] or a["special"] not in (0, CORRUPTED_SPECIAL):
+            continue
+        group = "Corrupted (corrupted altars only)" if a["special"] else a["category"]
+        pool.append({"id": a["id"], "name": a["name"], "group": group})
+    pool.sort(key=lambda a: (a["group"].startswith("Corrupted"), a["group"], a["id"]))
+    bases = [{"id": s["id"], "name": s["name"], "level": s["level"]}
+             for s in sorted(base["subtypes"], key=lambda s: (s["level"], s["id"])) if s["drops"]]
+    return AltarKind(type_id=base["id"], bases=bases, pool=pool)
+
+
 # --- options / rules --------------------------------------------------------------
 
 @dataclass
 class IdolOptions:
     picks: dict[str, dict] = field(default_factory=dict)   # kind key -> {"affixes": [ids], "min": 1|2}
+    altar: dict = field(default_factory=lambda: {"bases": [], "affixes": []})   # preferred altar subtypes / affix ids
+    show_other_altars: bool = True   # below the preferred altars, show every other altar
     rule_prefix: str = "[I] "
     header: str = "------- IDOLS (auto) -------"
     hide_others: bool = False     # hide every other normal/magic/rare/exalted idol below the section's rules
@@ -147,6 +180,8 @@ def parse_options(table: dict) -> IdolOptions:
         _check_keys(pick, {"affixes", "min"}, f"idol pick {key}")
         if pick.get("min", 2) not in (1, 2):
             raise ConfigError(f"idol pick {key}: min must be 1 or 2 (idols carry two affixes)")
+    _check_keys(opts.altar, {"bases", "affixes"}, "idol altar")
+    opts.altar = {"bases": list(opts.altar.get("bases", [])), "affixes": list(opts.altar.get("affixes", []))}
     bad = set(opts.style) - set(STYLE_DEFAULTS)
     if bad:
         raise ConfigError(f"idol style: unknown {sorted(bad)}; known: {', '.join(STYLE_DEFAULTS)}")
@@ -159,7 +194,7 @@ class IdolPlan:
     warnings: list[str]
 
 
-def plan_idols(opts: IdolOptions, kinds: list[IdolKind]) -> IdolPlan:
+def plan_idols(opts: IdolOptions, kinds: list[IdolKind], altar: AltarKind | None = None) -> IdolPlan:
     p = opts.rule_prefix
     rules, warnings = [], []
     known = {k.key: k for k in kinds}
@@ -180,6 +215,13 @@ def plan_idols(opts: IdolOptions, kinds: list[IdolKind]) -> IdolPlan:
         rules.append(Rule(name=f"{p}{kind.label} idol - {n}+ of {len(wanted)} wanted affixes", group="idols",
                           spec=opts.spec("both" if n >= 2 else "single"), unique_ids=None, rarity=None,
                           affix_ids=wanted, affix_min=n, item_types=[kind.type], sub_types=kind.all_subtypes))
+    if altar and (opts.altar["bases"] or opts.altar["affixes"]):
+        rule = _altar_rule(opts, altar, warnings)
+        if rule:
+            rules.append(rule)
+            if opts.show_other_altars:
+                rules.append(Rule(name=f"{p}Idol altar - all other altars", group="idols", spec=opts.spec("altar_other"),
+                                  unique_ids=None, rarity=None, item_types=[ALTAR_TYPE]))
     if opts.hide_others:
         rules.append(Rule(name=f"{p}Hide other idols", group="idols", spec=RuleSpec(action="hide"), unique_ids=None,
                           rarity="NORMAL MAGIC RARE EXALTED", item_types=list(IDOL_TYPES)))
@@ -189,9 +231,24 @@ def plan_idols(opts: IdolOptions, kinds: list[IdolKind]) -> IdolPlan:
     return IdolPlan(rules=rules, warnings=warnings)
 
 
+def _altar_rule(opts: IdolOptions, altar: AltarKind, warnings: list[str]) -> Rule | None:
+    known_bases, known_affixes = {b["id"] for b in altar.bases}, {a["id"] for a in altar.pool}
+    bases = [b for b in dict.fromkeys(opts.altar["bases"]) if b in known_bases]
+    affixes = [a for a in dict.fromkeys(opts.altar["affixes"]) if a in known_affixes]
+    if len(bases) < len(opts.altar["bases"]) or len(affixes) < len(opts.altar["affixes"]):
+        warnings.append("Idol altar: some picked altars or affixes don't exist in this game version; left out")
+    if not bases and not affixes:
+        return None
+    what = " with ".join(x for x in ("preferred altars" if bases else "",
+                                      f"1+ of {len(affixes)} preferred affixes" if affixes else "") if x)
+    return Rule(name=f"{opts.rule_prefix}Idol altar - {what}", group="idols", spec=opts.spec("altar"), unique_ids=None,
+                rarity=None, affix_ids=affixes or None, item_types=[ALTAR_TYPE], sub_types=bases)
+
+
 def read_picks(rules: list[dict], prefix: str, kinds: list[IdolKind]) -> dict:
     """The options a previously generated idol section (editor rule dicts) was made with."""
     picks, hide_others, found = {}, False, False
+    altar, show_other_altars = {"bases": [], "affixes": []}, False
     for r in rules:
         if "raw" in r or not r.get("name", "").startswith(prefix):
             continue
@@ -200,6 +257,12 @@ def read_picks(rules: list[dict], prefix: str, kinds: list[IdolKind]) -> dict:
         aff = next((c for c in r["conditions"] if c["type"] == "AffixCondition" and "raw" not in c), None)
         if r["type"] == "HIDE" and sub and len(sub["types"]) > 1:
             hide_others = True
+        if sub and sub["types"] == [ALTAR_TYPE]:
+            if sub["subtypes"] or aff:
+                altar = {"bases": sub["subtypes"], "affixes": aff["affixes"] if aff else []}
+            else:
+                show_other_altars = True
+            continue
         if not sub or not aff or len(sub["types"]) != 1:
             continue
         subs = set(sub["subtypes"])
@@ -207,17 +270,21 @@ def read_picks(rules: list[dict], prefix: str, kinds: list[IdolKind]) -> dict:
                      and set(k.subtypes) <= subs <= set(k.all_subtypes)), None)
         if kind:
             picks[kind.key] = {"affixes": aff["affixes"], "min": max(1, min(2, aff["min_on_same_item"]))}
-    return {"found": found, "picks": picks, "hide_others": hide_others}
+    picked = altar["bases"] or altar["affixes"]   # without altar picks keep the default
+    return {"found": found, "picks": picks, "hide_others": hide_others, "altar": altar,
+            "show_other_altars": show_other_altars if picked else True}
 
 
-def shadowing_rules(rules: list[dict], position: int) -> list[str]:
-    """Enabled rules above `position` that catch idols by item type alone (no affix condition):
-    they decide first, so generated rules below them never show their look."""
+def shadowing_rules(rules: list[dict], position: int, altar: bool = False) -> list[str]:
+    """Enabled rules above `position` that catch idols (and, with `altar`, idol altars) by item
+    type alone (no affix condition): they decide first, so generated rules below them never
+    show their look."""
+    watched = set(IDOL_TYPES) | ({ALTAR_TYPE} if altar else set())
     out = []
     for i, r in enumerate(rules[:position]):
         if "raw" in r or not r["enabled"]:
             continue
         types = {t for c in r["conditions"] if c["type"] == "SubTypeCondition" and "raw" not in c for t in c["types"]}
-        if types & set(IDOL_TYPES) and not any(c["type"] == "AffixCondition" for c in r["conditions"]):
+        if types & watched and not any(c["type"] == "AffixCondition" for c in r["conditions"]):
             out.append(f"#{i + 1} {r['name'] or '(unnamed)'}")
     return out

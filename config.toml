@@ -115,13 +115,12 @@ hide_rest = { name = "HIDE EVERYTHING ELSE" }
 # BiS section (above the exalted rules, so it decides first): per slot a rule for its item
 # type with the build's affixes (the Leveling tab's toggles; weapons/off-hands: one rule per
 # type the build uses) at `tier`+, `min` of them on the item. Bases are left unpicked (every
-# base matches): choose the right ones per build. Plus an idol altar rule with every altar
-# affix. Rule options give the section its look.
+# base matches): choose the right ones per build. Rule options give the section its look.
+# (Idol altars are in the idol section: the editor's Idols and Idol Altars generator.)
 [bis]
 header = "------ BIS ITEMS (pick the bases) ------"
 tier = 7
 min = 1
-altar = true
 color = 9
 emphasized = true
 beam_size = "LARGEST"
@@ -383,12 +382,16 @@ enabled = false
 rule_prefix = "[L] "            # marks the section so it can be found and replaced
 header = "------- LEVELING (auto) -------"
 # Affix toggles. A damage type takes every affix named "<type> damage" / "<type> penetration"
-# (fire/cold/lightning include elemental); a focus its keyword; a defence toggle its category.
-#   damage:  physical, fire, cold, lightning, void, necrotic, poison
-#   focus:   melee, spell, throwing, bow, minion, crit, dot, ailments
-#   defence: health, resistances, armour, dodge, block, ward, mana, attributes, movement, sustain, cooldown
+# (fire/cold/lightning include elemental); a focus its keyword; an attribute its affix plus
+# All Attributes (two-handers only); a defence toggle its category. Weapons use damage, focus
+# and attributes; armour, jewelry and off-hands all of them.
+#   damage:     physical, fire, cold, lightning, void, necrotic, poison
+#   focus:      melee, spell, throwing, bow, minion, crit, dot, ailments
+#   attributes: strength, dexterity, intelligence, attunement, vitality
+#   defence:    health, resistances, armour, dodge, block, ward, mana, movement, sustain, cooldown
 damage = ["physical"]
 focus = ["melee"]
+attributes = ["strength"]
 defence = ["health", "resistances"]
 character_class = ""            # Primalist / Mage / Sentinel / Acolyte / Rogue: allows that class's affixes and bases
 # Weapon / off-hand types (in-game names or ONE_HANDED_SWORD style): their bases are batched
@@ -399,10 +402,19 @@ offhands = []                   # Shield, Quiver, Off-Hand Catalyst
 step = 10
 cap = 60
 weapon_mode = "highlight"       # highlight: build-affix rule + plain base rule; require: affix rule only; bases: base only
-armour = true                   # helmet/body/belt/boots/gloves with gear_min_affixes+ build affixes
-jewelry = true                  # amulet/ring/relic, same
+armour = true                   # helmet/body/boots/gloves with gear_min_affixes+ build affixes
 gear_min_affixes = 2
 single_affix_until = 30         # ...and with just 1 build affix below this character level (0 = never)
+# Amulets, rings, relics and belts: their base matters little and their best bases come early,
+# so each one with a build affix shows until `cap`.
+jewelry = true
+# Good bases per item type, for any slot in use (weapons, off-hands, armour, jewelry, belts):
+# each type's get their own rule above the rest: still needing a build affix (weapons in
+# `bases` mode: any), but on from level 0 until `cap`, where the BiS rules take over. Class
+# bases count only for the chosen class.
+# Types left out keep the defaults below ([] = none): the jewelry and belt bases Raxxanterax's
+# S5 filter picks for the campaign, mostly resistance implicits. E.g. TWO_HANDED_SWORD = ["Claymore"].
+good_bases = { BELT = ["Spidersilk Sash"], AMULET = ["Bone Amulet", "Gold Amulet"], RING = ["Gold Ring"], RELIC = ["Spirit Catcher", "Scrying Eye", "Rune Quill", "Argent Crest", "Putrid Souls", "Ancient Coins", "Ruby Dice", "Antidote Vial"] }
 rarity = ["MAGIC", "RARE", "EXALTED"]
-# Looks per rule kind (rule options as above): weapon_affix, weapon_base, gear, gear_single
-style = { weapon_affix = { color = 14, emphasized = true }, gear = { color = 13, emphasized = true } }
+# Looks per rule kind (rule options as above): weapon_affix, weapon_base, gear, gear_single, jewelry, good_base
+style = { weapon_affix = { color = 14, emphasized = true }, gear = { color = 13, emphasized = true }, jewelry = { color = 13 }, good_base = { color = 15, emphasized = true } }

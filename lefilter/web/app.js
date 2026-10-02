@@ -423,7 +423,7 @@ function newFilter() {
   const nameIn = h("input", { value: "New filter", size: 34 });
   const clsSel = h("select", {}, h("option", { value: "" }, "none (class rules stay off)"),
     S.meta.enums.classes.map((c) => h("option", { value: c, selected: c === last.character_class }, c)));
-  const hasPicks = Object.keys(idolOpts().picks || {}).length > 0;
+  const hasPicks = Object.keys(idolOpts().picks || {}).length > 0 || altarPicked(idolOpts());
   const classIcons = S.meta.enums.class_icons;
   const icon = { icon: classIcons[last.character_class] ?? last.icon ?? 0, color: last.icon_color ?? 0, picked: false };
   let picker = null;
@@ -443,7 +443,7 @@ function newFilter() {
   const boxes = [
     box("fill_bis", "Fill the BiS rules with the build's affixes (Leveling tab toggles and weapons)"),
     box("add_leveling", "Add the leveling section (Leveling tab settings)"),
-    box("add_idols", hasPicks ? "Add the idol section (Idol generator picks)" : "Add the idol section (no idol picks yet)", hasPicks),
+    box("add_idols", hasPicks ? "Add the idol section (Idols and Idol Altars generator picks)" : "Add the idol section (no idol or altar picks yet)", hasPicks),
   ];
   const create = async () => {
     const flags = Object.fromEntries(boxes.map(([k, b]) => [k, b.checked]));
@@ -533,6 +533,46 @@ async function refreshGenerated() {
   } catch (e) {
     toast(`Could not regenerate: ${e.message}`, true);
   }
+}
+
+const CLEANUPS = [
+  ["separators", "Section separators",
+    "Switched-off rules without conditions: headings that only decorate the list."],
+  ["leveling", "Campaign leveling rules",
+    "The generated leveling section, and every rule a character level condition switches off before the leveling cap: once the campaign is done they never match again."],
+  ["common_uniques", "Most common uniques",
+    "The generated rules for common and uncommon uniques below LP level 60 (random drops: no boss or quest uniques) at 0-2 LP. Those uniques then fall through to the rules below, usually the bottom hide rule."],
+];
+
+/** Dialog: what each way of freeing rules would remove, with a button to do it (undo with Ctrl+Z). */
+async function freeUpRules() {
+  if (!S.doc) return;
+  const dlg = $("#dlg");
+  const o = levOpts();
+  let res;
+  try {
+    res = await api("/api/cleanup", { rules: S.doc.rules, leveling: { prefix: o.rule_prefix, cap: o.cap } });
+  } catch (e) {
+    toast(`Could not check the rules: ${e.message}`, true);
+    return;
+  }
+  const n = S.doc.rules.length;
+  dlg.replaceChildren(h("h3", {}, "Free up rules"),
+    h("p", { class: "hint" }, `${n}/${S.meta.max_rules} rules. Removing is undone with Ctrl+Z. Regenerating the [A] rules or applying a generator again brings its removed rules back.`),
+    ...CLEANUPS.map(([kind, title, what]) => {
+      const { removed } = res[kind];
+      return h("div", { class: "box" },
+        h("div", { class: "row" }, h("b", {}, title), h("span", { class: "spacer" }),
+          h("button", { class: "danger", disabled: !removed.length, onclick: () => {
+            mutate(() => { S.doc.rules = res[kind].rules; clampSel(); }, { editor: true });
+            toast(`Removed ${removed.length} rules (${title.toLowerCase()}). Undo with Ctrl+Z.`);
+            freeUpRules();
+          } }, removed.length ? `Remove ${removed.length} rule${removed.length > 1 ? "s" : ""}` : "Nothing to remove")),
+        h("p", { class: "hint" }, what),
+        removed.length ? h("details", {}, h("summary", {}, "Rules it removes"), h("ul", { class: "gen-rules" }, removed.map((name) => h("li", {}, name)))) : null);
+    }),
+    h("div", { class: "row" }, h("button", { class: "primary", onclick: () => dlg.close() }, "Close")));
+  if (!dlg.open) dlg.showModal();
 }
 
 /* ---------- top-level rendering ---------- */
@@ -1127,10 +1167,15 @@ function setLevel(v, fromTab) {
 const STYLE_KINDS = [
   ["weapon_affix", "Weapon / off-hand base with a build affix"],
   ["weapon_base", "Weapon / off-hand base, any affixes"],
-  ["gear", "Armour / jewelry with enough build affixes"],
-  ["gear_single", "Armour / jewelry with one build affix (early levels)"],
+  ["gear", "Armour with enough build affixes"],
+  ["gear_single", "Armour with one build affix (early levels)"],
+  ["jewelry", "Jewelry / belt with a build affix"],
+  ["good_base", "Good base, any slot (until the cap)"],
 ];
-const STYLE_DEFAULTS = { weapon_affix: { color: 14, emphasized: true }, weapon_base: {}, gear: { color: 13, emphasized: true }, gear_single: {} };
+const STYLE_DEFAULTS = { weapon_affix: { color: 14, emphasized: true }, weapon_base: {}, gear: { color: 13, emphasized: true }, gear_single: {},
+  jewelry: { color: 13 }, good_base: { color: 15, emphasized: true } };
+const GEAR_ARMOUR = ["HELMET", "BODY_ARMOR", "BOOTS", "GLOVES"];
+const GEAR_JEWELRY = ["BELT", "AMULET", "RING", "RELIC"];
 
 function levOpts() {
   if (!S.lev.opts) {
@@ -1171,9 +1216,10 @@ function renderLevForm() {
   f.replaceChildren();
   const toggleList = (arr, v) => { const i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); levChanged(); };
   const picked = S.lev.result?.picked || {};
-  const groups = [["damage", "Damage type"], ["focus", "Build focus"], ["defence", "Defence & utility (armour, jewelry, off-hands)"]];
+  const groups = [["damage", "Damage type"], ["focus", "Build focus"], ["attributes", "Attributes (any of them adds All Attributes, a two-hander affix)"],
+    ["defence", "Defence & utility (armour, jewelry, off-hands)"]];
   put(f, h("h3", {}, "Affixes the build wants"),
-    h("p", { class: "hint" }, "Each toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\"). Weapons use damage and focus toggles only."));
+    h("p", { class: "hint" }, "Each toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\"). Weapons use damage, focus and attribute toggles only."));
   for (const [g, label] of groups) {
     put(f, h("div", { class: "group-label" }, label),
       h("div", { class: "chips" }, S.meta.toggles.filter((t) => t.group === g).map((t) =>
@@ -1197,13 +1243,32 @@ function renderLevForm() {
         [["highlight", "highlight bases with a build affix, show the rest"], ["require", "only bases with a build affix"], ["bases", "all bases, ignore affixes"]]
           .map(([v, l]) => h("option", { value: v, selected: v === o.weapon_mode }, l))))));
 
-  put(f, h("h3", {}, "Armour & jewelry"),
+  put(f, h("h3", {}, "Armour, jewelry & belts"),
     h("div", { class: "chips" },
-      chipToggle("Armour (helmet, body, belt, boots, gloves)", o.armour, () => { o.armour = !o.armour; levChanged(); }),
-      chipToggle("Jewelry (amulet, ring, relic)", o.jewelry, () => { o.jewelry = !o.jewelry; levChanged(); })),
+      chipToggle("Armour (helmet, body, boots, gloves)", o.armour, () => { o.armour = !o.armour; levChanged(); }),
+      chipToggle("Jewelry & belts (amulet, ring, relic, belt)", o.jewelry, () => { o.jewelry = !o.jewelry; levChanged(); })),
     h("div", { class: "row" },
-      h("label", {}, "Show with", numInput(o.gear_min_affixes, (v) => { o.gear_min_affixes = v; levChanged(); }, { min: 1, max: 4, width: "52px" }), "+ build affixes"),
+      h("label", {}, "Armour with", numInput(o.gear_min_affixes, (v) => { o.gear_min_affixes = v; levChanged(); }, { min: 1, max: 4, width: "52px" }), "+ build affixes"),
       h("label", {}, "and with 1 below level", numInput(o.single_affix_until, (v) => { o.single_affix_until = v; levChanged(); }, { min: 0, max: 100, width: "56px" }))));
+  if (o.jewelry) put(f, h("p", { class: "hint" }, "Jewelry and belts with a build affix show until the cap."));
+
+  const slots = [...new Set([...o.weapons, ...o.offhands]), ...(o.armour ? GEAR_ARMOUR : []), ...(o.jewelry ? GEAR_JEWELRY : [])];
+  put(f, h("h3", {}, "Good bases"),
+    h("p", { class: "hint" }, slots.length
+      ? "Bases worth keeping all campaign: each slot's ticked bases get their own rule above the rest - still with a build affix, but on until the cap (then the BiS rules take over). Class bases count only for the chosen class."
+      : "Pick weapons, armour or jewelry above to choose their good bases."));
+  const cls = S.meta.enums.classes.indexOf(o.character_class);
+  for (const t of slots) {
+    const good = (o.good_bases[t] ||= []);
+    const subs = [...(M.base.get(t)?.subtypes || [])]
+      .filter((s) => good.includes(s.en_name) || (s.drops && s.level < o.cap && (cls < 0 || !s.class || s.class & (1 << cls))))
+      .sort((a, b) => a.level - b.level || a.id - b.id);
+    const names = subs.filter((s) => good.includes(s.en_name)).map((s) => s.name);
+    put(f, h("details", { class: "good-bases", open: S.lev.openGood?.has(t) || null,
+      ontoggle: (e) => { (S.lev.openGood ||= new Set())[e.target.open ? "add" : "delete"](t); } },
+    h("summary", {}, typeName(t), h("span", { class: "hint" }, ` · ${names.length ? names.join(", ") : "none"}`)),
+    h("div", { class: "chips" }, subs.map((s) => chipToggle(s.name, good.includes(s.en_name), () => toggleList(good, s.en_name), `${s.level}`)))));
+  }
 
   put(f, h("h3", {}, "Rarity"),
     h("div", { class: "chips" }, S.meta.enums.rarities.map((r) => chipToggle(cap(r), o.rarity.includes(r), () => toggleList(o.rarity, r)))));
@@ -1240,8 +1305,8 @@ function tomlVal(v) {
 
 function showToml() {
   const o = levOpts();
-  const keys = ["rule_prefix", "header", "damage", "focus", "defence", "character_class", "weapons", "offhands", "step", "cap",
-    "weapon_mode", "armour", "jewelry", "gear_min_affixes", "single_affix_until", "rarity", "style"];
+  const keys = ["rule_prefix", "header", "damage", "focus", "attributes", "defence", "character_class", "weapons", "offhands", "step", "cap",
+    "weapon_mode", "armour", "jewelry", "gear_min_affixes", "single_affix_until", "good_bases", "rarity", "style"];
   const text = ["[leveling]", "enabled = true", ...keys.map((k) => `${k} = ${tomlVal(o[k] ?? "")}`)].join("\n");
   const dlg = $("#dlg");
   const ta = h("textarea", { value: text, style: { minHeight: "320px", minWidth: "560px" } });
@@ -1271,7 +1336,8 @@ function timeline(res, o) {
   for (const r of res.rules) {
     const st = r.conditions.find((c) => c.type === "SubTypeCondition");
     const lv = r.conditions.find((c) => c.type === "CharacterLevelCondition");
-    if (!st || !lv || st.types.length < 2) continue;
+    // weapon / off-hand windows are drawn above
+    if (!st || !lv || res.windows[st.types[0]]?.some((w) => st.types.length === 1 && w.min === lv.min && w.max === lv.max)) continue;
     const color = r.recolor ? filterColor(r.color) : "#888";
     put(wrap, h("div", { class: "tl-row" }, h("div", { class: "tl-name", title: r.name }, r.name.replace(o.rule_prefix, "")),
       h("div", { class: "tl-bar" }, h("div", { class: "tl-seg", style: { left: pct(lv.min), width: `calc(${pct(lv.max + 1 - lv.min)} - 2px)`, background: color } },
@@ -1353,10 +1419,14 @@ function applyLeveling() {
   levelingSoon();
 }
 
-/* ---------- idol generator ---------- */
+/* ---------- idols and idol altars generator ---------- */
 
-const IDOL_STYLE_KINDS = [["both", "Idols with both wanted affixes"], ["single", "Idols with one wanted affix"]];
-const IDOL_STYLE_DEFAULTS = { both: { color: 15, emphasized: true }, single: { color: 15 } };
+const IDOL_STYLE_KINDS = [["both", "Idols with both wanted affixes"], ["single", "Idols with one wanted affix"],
+  ["altar", "Preferred idol altars (with a beam)"], ["altar_other", "Every other idol altar"]];
+const IDOL_STYLE_DEFAULTS = { both: { color: 15, emphasized: true }, single: { color: 15 },
+  altar: { color: 15, emphasized: true, beam_size: "LARGE", beam_color: 19 }, altar_other: { color: 15 } };
+const ALTAR_KEY = "IDOL_ALTAR";
+const altarPicked = (o) => o.altar.bases.length + o.altar.affixes.length > 0;
 
 /** Stored options merged over the defaults, keeping only keys the server still knows. */
 function withDefaults(defaults, stored) {
@@ -1417,6 +1487,8 @@ async function readIdolsFromFilter() {
     if (got.found) {
       S.idol.opts.picks = got.picks;
       S.idol.opts.hide_others = got.hide_others;
+      S.idol.opts.altar = got.altar;
+      S.idol.opts.show_other_altars = got.show_other_altars;
       store.set("idol-opts", S.idol.opts);
     }
   } catch { /* keep the stored picks */ }
@@ -1464,6 +1536,17 @@ function renderIdolList() {
         h("div", {}, h("div", {}, k.label), h("div", { class: "bases" }, k.base_names.join(", ") + (k.heretical_names.length ? " + heretical" : ""))),
         h("span", { class: "count" + (n ? " has" : "") }, n ? `${n} picked · needs ${Math.min(pick.min, n)}` : `${k.pool.length} affixes`)));
     }
+  }
+  const altar = S.meta.idol_altar;
+  if (altar) {
+    const nb = o.altar.bases.length, na = o.altar.affixes.length;
+    put(f, h("div", { class: "group-label" }, "Idol altars"),
+      h("div", { class: "idol-row" + (S.idol.sel === ALTAR_KEY ? " selected" : ""), onclick: () => { S.idol.sel = ALTAR_KEY; renderIdolList(); renderIdolEditor(); } },
+        h("div", { class: "shape-cell" }, "◈"),
+        h("div", {}, h("div", {}, "Idol altar"), h("div", { class: "bases" }, "preferred altars + preferred affixes")),
+        h("span", { class: "count" + (nb || na ? " has" : "") }, nb || na
+          ? `${nb ? `${nb} altar${nb > 1 ? "s" : ""}` : "any altar"} · ${na ? `${na} affix${na > 1 ? "es" : ""}` : "any affixes"}`
+          : `${altar.bases.length} altars · ${altar.pool.length} affixes`)));
   }
   put(f, h("h3", {}, "Other idols"),
     h("label", {}, h("input", { type: "checkbox", checked: o.hide_others, onchange: (e) => { o.hide_others = e.target.checked; idolChanged(); } }),
@@ -1518,8 +1601,9 @@ function renderIdolEditor() {
   p.replaceChildren(h("div", { class: "box sticky", id: "idol-summary" }));
   renderIdolSummary();
   const o = idolOpts();
+  if (S.idol.sel === ALTAR_KEY && S.meta.idol_altar) { renderAltarEditor(p, o); return; }
   const k = idolKind(S.idol.sel);
-  if (!k) { put(p, h("div", { class: "empty" }, "Pick an idol kind on the left to choose the affixes you want on it.")); return; }
+  if (!k) { put(p, h("div", { class: "empty" }, "Pick an idol kind or the idol altar on the left to choose what you want on it.")); return; }
   const pick = o.picks[k.key] || { affixes: [], min: 2 };
   const save = (next) => {
     if (next.affixes.length) o.picks[k.key] = next; else delete o.picks[k.key];
@@ -1579,6 +1663,38 @@ function renderIdolEditor() {
       } }, h("option", { value: "" }, "Copy picks to…"), copyTargets.map((x) => h("option", { value: x.key }, x.label)))),
     h("div", { class: "row" }, search),
     poolBox);
+}
+
+/** The idol altar: preferred altar bases and preferred altar affixes, one rule for both. */
+function renderAltarEditor(p, o) {
+  const altar = S.meta.idol_altar;
+  const base = M.base.get(ALTAR_KEY);
+  const altarName = (b) => base?.subtypes.find((s) => s.id === b.id)?.name || b.name;
+  const flip = (list, id) => { const i = list.indexOf(id); if (i >= 0) list.splice(i, 1); else list.push(id); idolChanged(); };
+  const groups = new Map();
+  for (const a of altar.pool) {
+    if (!groups.has(a.group)) groups.set(a.group, []);
+    groups.get(a.group).push(a);
+  }
+  put(p,
+    h("div", { class: "idol-head" }, h("div", {}, h("h2", { style: { margin: 0 } }, "Idol altar"),
+      h("div", { class: "hint" }, "One rule, with a beam: the preferred altars with at least one of the preferred affixes. Leave a list empty to take any altar / any affix."))),
+    h("label", {}, h("input", { type: "checkbox", checked: o.show_other_altars, onchange: (e) => { o.show_other_altars = e.target.checked; idolChanged(); } }),
+      " Below it, show every other altar (plainer look)"),
+    h("h3", {}, "Preferred altars"),
+    h("div", { class: "row" },
+      h("button", { disabled: !o.altar.bases.length, onclick: () => { o.altar.bases = []; idolChanged(); } }, "Clear")),
+    h("div", { class: "bases" }, altar.bases.map((b) => h("label", {},
+      h("input", { type: "checkbox", checked: o.altar.bases.includes(b.id), onchange: () => flip(o.altar.bases, b.id) }),
+      altarName(b), h("span", { class: "lvl" }, `lvl ${b.level}`)))),
+    h("h3", {}, "Preferred affixes"),
+    h("div", { class: "row" },
+      h("button", { disabled: !o.altar.affixes.length, onclick: () => { o.altar.affixes = []; idolChanged(); } }, "Clear")),
+    [...groups].map(([group, list]) => h("div", { class: "pool-group" },
+      h("div", { class: "grp-head" }, h("span", {}, `${catName(group)} (${list.length})`)),
+      h("div", { class: "pool-cols" }, list.map((a) => h("label", {},
+        h("input", { type: "checkbox", checked: o.altar.affixes.includes(a.id), onchange: () => flip(o.altar.affixes, a.id) }), affixName(a.id),
+        affixValueCell(M.affix.get(a.id), { typeIds: new Set([altar.type_id]) })))))));
 }
 
 function applyIdols() {
@@ -1741,6 +1857,7 @@ function wire() {
   $("#btn-up").onclick = () => stepRule(-1);
   $("#btn-down").onclick = () => stepRule(1);
   $("#btn-refresh").onclick = refreshGenerated;
+  $("#btn-free").onclick = freeUpRules;
   $("#btn-delete").onclick = deleteDialog;
   $("#hdr-icon").onclick = headerIconDialog;
   $("#search").addEventListener("input", (e) => { S.search = e.target.value; renderList(); });

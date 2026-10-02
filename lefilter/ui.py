@@ -28,7 +28,7 @@ from . import gamedata
 from .filterdoc import parse_filter, parse_rule_blocks, render_filter
 from .filterxml import MAX_RULES, render_rule, write_filter
 from .game import find_filters_dir
-from . import idols
+from . import cleanup, idols
 from .leveling import TOGGLES, LevelingOptions, parse_options, plan_leveling
 from .sections import doc_infos, place
 from .starter import (PARTS, TEMPLATE_PARTS, ensure_template, load_template, make_template, new_from_template,
@@ -51,6 +51,7 @@ class Api:
         ensure_template(template_file, self.config, data)
         self.ctx = Context(data)
         self.idol_kinds = idols.idol_kinds(data)
+        self.altar = idols.altar_kind(data)
         self.backup_dir = backup_dir
         self.dirs = {"out": out_dir, "template": template_file.parent}
         game_dir = find_filters_dir()
@@ -147,6 +148,7 @@ class Api:
             "leveling_defaults": defaults,
             "idol_kinds": [{**asdict(k), "subtypes": k.all_subtypes} for k in self.idol_kinds],
             "idol_defaults": asdict(idols.IdolOptions()),
+            "idol_altar": asdict(self.altar) if self.altar else None,
             "filter_icons": d.get("filter_icons", {"icons": [], "colors": []}),
             "languages": d.get("languages") or [{"code": "en", "label": "English"}],
             "template": {"location": "template", "file": self.template_file.name,
@@ -178,17 +180,17 @@ class Api:
 
     def idols(self, body: dict) -> dict:
         opts = idols.parse_options(body.get("options", {}))
-        plan = idols.plan_idols(opts, self.idol_kinds)
+        plan = idols.plan_idols(opts, self.idol_kinds, self.altar)
         new = parse_rule_blocks([render_rule(r) for r in plan.rules])
         result = {"rules": new, "warnings": plan.warnings, "prefix": opts.rule_prefix}
         if "rules" in body:
             current = body["rules"]
             merged, removed, at = place(current, doc_infos(current), new, opts.rule_prefix, section="IDOL",
                                         fallback="top")
-            shadows = idols.shadowing_rules(merged, at)
+            shadows = idols.shadowing_rules(merged, at, altar=bool(opts.altar["bases"] or opts.altar["affixes"]))
             if shadows and new:
                 result["warnings"] = result["warnings"] + [
-                    "these rules above the section catch idols by type alone, so idols they match never reach "
+                    "these rules above the section catch idols or altars by type alone, so items they match never reach "
                     "the generated rules: " + ", ".join(shadows)]
             result.update(merged=merged, removed=removed, position=at)
         return result
@@ -207,6 +209,14 @@ class Api:
 
     def refresh(self, body: dict) -> dict:
         return refresh_generated(self.config, self.data, body["rules"])
+
+    def cleanup(self, body: dict) -> dict:
+        """What each way of freeing rules would remove: {kind: {"rules": kept, "removed": [names]}}."""
+        rules, lev = body["rules"], body.get("leveling", {})
+        done = {"separators": cleanup.remove_separators(rules),
+                "leveling": cleanup.remove_leveling(rules, lev.get("prefix", "[L] "), int(lev.get("cap", 60))),
+                "common_uniques": cleanup.remove_common_uniques(rules, self.config, self.data["uniques"])}
+        return {kind: {"rules": kept, "removed": removed} for kind, (kept, removed) in done.items()}
 
     def language(self, code: str) -> dict:
         """A locale's game-text overlay (data/lang/<code>.json)."""
@@ -291,7 +301,8 @@ def _handler(api: Api):
                 return self._json({"error": "bad JSON"}, HTTPStatus.BAD_REQUEST)
             routes = {"/api/filter": api.save, "/api/leveling": api.leveling, "/api/match": api.match,
                       "/api/idols": api.idols, "/api/idols/read": api.idols_read,
-                      "/api/refresh": api.refresh, "/api/filter/delete": api.delete, "/api/new": api.new,
+                      "/api/refresh": api.refresh, "/api/cleanup": api.cleanup, "/api/filter/delete": api.delete,
+                      "/api/new": api.new,
                       "/api/template/rebuild": api.rebuild_template}
             fn = routes.get(urlparse(self.path).path)
             if not fn:

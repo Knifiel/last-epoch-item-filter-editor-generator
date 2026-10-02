@@ -50,9 +50,11 @@ on Windows and `~/.local/share/last-epoch-item-filter-editor` on Linux.
 - **New filter from a template**: legendary/unique and set rules grouped by drop rarity, LP and
   Weaver's Will, exalted and T8 rules, a BiS section, shatter rules, class item hide rules and a
   hide-everything-else rule, set up for the class you pick.
-- **[Leveling generator](#leveling-section)**: pick damage types, build focus and weapon types;
-  get campaign rules whose bases switch over every 10 levels.
-- **[Idol generator](#idol-generator)**: per idol size and class, every affix that can roll on it.
+- **[Leveling generator](#leveling-section)**: pick damage types, build focus, attributes and weapon
+  types; get campaign rules whose bases switch over every 10 levels, plus the good bases you pick
+  per slot until the cap.
+- **[Idols and Idol Altars generator](#idols-and-idol-altars-generator)**: per idol size and class, every affix
+  that can roll on it; plus your preferred idol altars and altar affixes.
 - After a patch, **↻ [A] rules** refreshes the generated rules with new and changed uniques.
 
 ## Running from source
@@ -191,7 +193,7 @@ of the game's languages (the editor's own labels stay English).
   item types. *Preview at character level* dims rules that are switched off at that level.
 - **Leveling generator**: see [below](#leveling-section); *Apply* puts the section into
   the open filter.
-- **Idol generator**: see [below](#idol-generator).
+- **Idols and Idol Altars generator**: see [below](#idols-and-idol-altars-generator).
 - **Test an item**: describe an item (type, base, rarity, unique, affixes with tiers,
   LP/WW, corruption) and a character level; it shows the ground label the filter gives
   it and, for every rule, whether it matches and why not. Matching follows the game's
@@ -204,8 +206,7 @@ of the game's languages (the editor's own labels stay English).
   template*). Top to bottom it has: the always-show personal/variant affix rule; a **BiS
   section** (per slot the slot's item type with no bases picked - so every base matches until
   you pick the right ones - and the build's affixes at T7+; one rule per weapon / off-hand
-  type the build uses, plus an idol altar rule with every altar affix; own colour, emphasis
-  and beam, `[bis]`); the exalted rules (`[[exalted_rule]]`: **all T8 items** first - any gear
+  type the build uses; own colour, emphasis and beam, `[bis]`); the exalted rules (`[[exalted_rule]]`: **all T8 items** first - any gear
   affix at tier 8, no item-type condition - then double T7, T7+T6, single T7 on uncorrupted
   items) and a show-all-legendary rule; the class item hide rules; a **shatter section**
   (`[shatter]`: magic/rare/exalted gear - idols can't be shattered - with rare-roll affixes:
@@ -223,6 +224,17 @@ of the game's languages (the editor's own labels stay English).
   groups, class hide rules, always-show affix rules - from `config.toml` and the current
   game data (e.g. new uniques after a patch), the way `build` does. Rules keep their on/off
   state and filled build slots stay as they are; Ctrl+Z undoes it.
+- **Free up rules…** (Rules tab) makes room under the game's 200-rule limit. It shows what
+  each option would remove, then removes it on a click (Ctrl+Z undoes it):
+  - *section separators*: switched-off rules without conditions, which only decorate the list;
+  - *campaign leveling rules*: the generated leveling section plus every rule a character
+    level condition switches off before the leveling cap (60), along with a heading left
+    with nothing under it;
+  - *most common uniques*: the generated rules for common and uncommon uniques below LP
+    level 60 (random drops, so no boss or quest uniques) at 0-2 LP; hand-picked lists and
+    filled build slots stay.
+
+  Regenerating the `[A]` rules or applying a generator again brings back what it removed.
 - **Delete** removes the open filter's file after a confirmation; a copy goes to
   `.cache/backups/`.
 
@@ -243,8 +255,11 @@ Generated rules for campaign gear that fits a rough build profile, from toggles:
   chance): affixes with that keyword (*Increased Minion Damage*, *Minion Health* ...). With a
   melee/spell/bow/throwing focus picked, damage-type affixes for the other ways of hitting
   are dropped (no *Added Bow Physical Damage* for a melee build);
+- **attributes** (strength, dexterity, intelligence, attunement, vitality): the attribute's
+  affix, plus *All Attributes* (two-handed weapons only) for any of them. Like damage types
+  and build focus, they count on weapons too;
 - **defence & utility** (health, resistances, armour, dodge, block, ward, mana,
-  attributes, movement speed, regen/leech, cooldown) for armour, jewelry and off-hands;
+  movement speed, regen/leech, cooldown) for armour, jewelry and off-hands;
 - **class** (optional): allows that class's class-specific affixes and bases and drops
   affixes it can't roll. Set, corrupted, experimental, personal and idol affixes are
   never used.
@@ -257,9 +272,20 @@ a two-handed sword shows Bastard Sword (lvl 0) at character levels 0-9, Split Gr
 (10) at 10-19, Imperial Warblade (24) at 20-29 ... Odachi (56) at 50-59; an empty batch
 extends the previous window. By default each window has a highlighted rule for bases with
 a build affix plus a plain rule for the rest (`weapon_mode`: `highlight` / `require` /
-`bases`). **Armour** and **jewelry** get a rule for items with 2+ build affixes (until 60)
-and one for items with a single build affix (until 30). Rarity defaults to magic, rare and
-exalted; window size, cap, thresholds and looks are configurable.
+`bases`). **Armour** gets a rule for items with 2+ build affixes (until 60) and one for
+items with a single build affix (until 30). **Jewelry and belts** cap out early and their
+base rarely matters, so every one with a build affix is shown until 60.
+
+**Good bases** are the bases you want whatever the level - what counts as good depends on
+the build, so you pick them per slot (weapons, off-hands, armour, jewelry, belts; in the
+editor or `good_bases` in `config.toml`). Like the other leveling gear they need a build
+affix (weapons in `bases` mode: any), but each slot's good bases get their own rule above
+the rest, with a stronger look, that never switches off before the cap - from there the
+BiS rules take over. The defaults are the jewelry and belt bases
+Raxxanterax's S5 filter picks for the campaign, mostly resistance implicits: Gold Ring,
+Bone and Gold Amulet, Spidersilk Sash and a few relics per class (class bases count only
+for the chosen class). Rarity defaults to magic, rare and exalted; window size, cap,
+thresholds and looks are configurable.
 
 The section's rules start with `[L] `; generating again replaces them in place.
 Otherwise it goes directly under a separator named like LEVELING, else above the bottom
@@ -268,9 +294,9 @@ which bases are shown at which character level, the affixes each toggle picks an
 resulting rule count. `[leveling]` in `config.toml` holds the same options (the editor
 can export them); with `enabled = true` `build` adds the section to the template too.
 
-## Idol generator
+## Idols and Idol Altars generator
 
-The editor's *Idol generator* tab lists every idol kind that drops, by size (width ×
+The editor's *Idols and Idol Altars generator* tab lists every idol kind that drops, by size (width ×
 height, drawn as its inventory footprint) and class:
 
 - all classes: 1x1 Small, 1x1 Minor, 2x1 Humble, 1x2 Stout;
@@ -289,6 +315,12 @@ separator named like IDOL, else at the top of the filter; the tab warns about ru
 it that catch idols by type alone. Heretical (enchanted) idols are crafted from class idols
 and are separate bases, so each class idol's rule lists its heretical version too: one
 thrown out of the inventory is shown like the idol it was made from.
+
+**Idol altars** get one rule in the same section, from two lists: your *preferred altars*
+(bases) and your *preferred affixes* (the altar affixes, corrupted-only ones in their own
+group). The rule shows those altars with at least one of those affixes, with a beam; leave
+either list empty to take any altar or any affix. Below it a plainer rule shows every other
+altar (can be switched off).
 
 ## Tests
 
