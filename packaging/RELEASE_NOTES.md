@@ -32,4 +32,5 @@ mistake; the source code and the automated build that produced this file are in 
 program's GitHub repository.
 
 Free for non-commercial use only (PolyForm Noncommercial 1.0.0, see `LICENSE`); not for sale.
-Not affiliated with or endorsed by Eleventh Hour Games.
+Not affiliated with or endorsed by Eleventh Hour Games: this is a third-party program they aren't
+responsible for, so please don't contact their support about it.

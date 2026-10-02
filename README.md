@@ -327,4 +327,6 @@ on to (changed or not) gets it under the same terms.
 Last Epoch and everything in it - names, texts, images, game data - belong to Eleventh Hour
 Games. None of it is included here, and this project isn't affiliated with or endorsed by
 Eleventh Hour Games. The program reads game data from your own installation, on your own
-computer, and never touches the running game; you use it at your own risk.
+computer, and never touches the running game; you use it at your own risk. It is a third-party
+program: Eleventh Hour Games isn't responsible for it, so please don't contact their support
+about it.
