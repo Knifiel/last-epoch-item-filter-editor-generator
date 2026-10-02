@@ -24,7 +24,9 @@ use the editor; close it to stop.
   Files the editor overwrites or deletes are backed up first.
 
 Windows may warn that the program is from an unknown publisher (it isn't code-signed): choose
-"More info" -> "Run anyway".
+"More info" -> "Run anyway". Some antivirus programs flag unsigned one-file Python programs by
+mistake; the source code and the automated build that produced this file are in the
+program's GitHub repository.
 
 Free for non-commercial use only (PolyForm Noncommercial 1.0.0, see `LICENSE`); not for sale.
 Not affiliated with or endorsed by Eleventh Hour Games.

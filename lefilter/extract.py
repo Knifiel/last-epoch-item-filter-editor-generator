@@ -12,9 +12,16 @@ import json
 import platform
 import stat
 import subprocess
+import sys
+import types
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:   # UnityPy's audio export imports FMOD, which the packaged app leaves out (audio is never read here)
+    import fmod_toolkit  # noqa: F401
+except Exception:
+    sys.modules.setdefault("fmod_toolkit", types.ModuleType("fmod_toolkit"))
 
 import UnityPy
 

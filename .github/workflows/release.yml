@@ -34,6 +34,9 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt pyinstaller
       - run: python -m PyInstaller packaging/lefilter.spec --noconfirm
+      - name: Self-test the executable (every bundled component loads)
+        shell: bash
+        run: dist/LastEpochItemFilterEditor selftest
       - run: python packaging/collect_licenses.py dist/THIRD_PARTY_LICENSES.txt
       - name: Package (Windows)
         if: runner.os == 'Windows'

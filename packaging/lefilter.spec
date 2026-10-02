@@ -11,7 +11,8 @@ datas = [
     (str(root / "LICENSE"), "."),
 ]
 binaries, hiddenimports = [], []
-for package in ("UnityPy", "texture2ddecoder", "etcpak", "astc_encoder", "TypeTreeGeneratorAPI", "brotli", "lz4", "fsspec"):
+for package in ("UnityPy", "texture2ddecoder", "etcpak", "astc_encoder", "archspec", "TypeTreeGeneratorAPI", "brotli", "lz4",
+                "fsspec"):
     try:
         d, b, h = collect_all(package)
     except Exception:
@@ -26,10 +27,9 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports + ["lefilter.ui"],
-    excludes=["pytest", "tkinter", "pyfmodex"],
+    # FMOD (UnityPy's audio export, never used here; lefilter.extract stubs it) is proprietary: not bundled.
+    excludes=["pytest", "tkinter", "pyfmodex", "fmod_toolkit"],
 )
-# UnityPy imports fmod_toolkit (audio export, never used here) on start-up; keep its Python code but
-# leave out the proprietary FMOD libraries it carries.
 a.datas = [d for d in a.datas if "libfmod" not in d[0]]
 a.binaries = [b for b in a.binaries if "libfmod" not in b[0] and "fmod" not in Path(b[0]).name.lower()]
 pyz = PYZ(a.pure)

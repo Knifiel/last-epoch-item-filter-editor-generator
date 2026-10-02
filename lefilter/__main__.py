@@ -275,6 +275,22 @@ def cmd_ui(args) -> None:
               DATA_DIR / "lang"), args.port, not args.no_browser)
 
 
+def cmd_selftest(args) -> None:
+    """Load every component extraction needs (the release build runs this to catch missing pieces)."""
+    import importlib
+    from . import extract  # noqa: F401  (UnityPy, with FMOD stubbed out)
+    for module in ("UnityPy.export.Texture2DConverter", "UnityPy.export.SpriteHelper", "texture2ddecoder", "etcpak",
+                   "astc_encoder", "TypeTreeGeneratorAPI", "lefilter.ui"):
+        importlib.import_module(module)
+    from TypeTreeGeneratorAPI import TypeTreeGenerator
+    TypeTreeGenerator("2022.3.0f1", "AssetStudio")
+    from .ui import WEB_DIR
+    missing = [f for f in ("index.html", "app.js", "app.css") if not (WEB_DIR / f).is_file()]
+    if missing:
+        sys.exit(f"web files missing: {missing}")
+    print("selftest ok")
+
+
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(prog="lefilter", description="Generate Last Epoch loot-filter rules for uniques from game data.")
     p.add_argument("--game-dir", type=Path, help="Last Epoch install folder (auto-detected from Steam otherwise)")
@@ -307,8 +323,12 @@ def main(argv=None) -> None:
     u.add_argument("--no-extract", action="store_true", help="use data/uniques.json as-is")
     u.set_defaults(func=cmd_ui)
 
+    t = sub.add_parser("selftest", help="check that the program's components load")
+    t.set_defaults(func=cmd_selftest)
+
     args = p.parse_args(argv)
-    prepare_user_dir()
+    if args.cmd != "selftest":
+        prepare_user_dir()
     try:
         args.func(args)
     except (ConfigError, ExtractError, GameNotFound, ValueError) as e:

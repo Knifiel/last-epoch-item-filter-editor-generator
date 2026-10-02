@@ -22,7 +22,8 @@ program reads all item data from **your own game installation** - no game data c
 1. Download the latest release from the [Releases page](../../releases/latest):
    `LastEpochItemFilterEditor-windows.zip` or `LastEpochItemFilterEditor-linux.tar.gz`.
 2. Unpack it anywhere and start `LastEpochItemFilterEditor` (on Windows double-click the `.exe`;
-   Windows may warn that it's from an unknown publisher - "More info" -> "Run anyway").
+   Windows may warn that it's from an unknown publisher - "More info" -> "Run anyway"; it isn't
+   code-signed, and some antivirus programs flag unsigned one-file Python programs by mistake).
 3. A console window opens and the editor opens in your browser. Keep the window open while you
    use the editor; close it to stop.
 

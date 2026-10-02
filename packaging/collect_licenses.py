@@ -12,7 +12,7 @@ from importlib import metadata
 from pathlib import Path
 
 ROOTS = ["UnityPy", "TypeTreeGeneratorAPI"]
-EXCLUDED = {"pyfmodex"}   # left out of the build (lefilter.spec; fmod_toolkit goes in without its FMOD libraries)
+EXCLUDED = {"fmod-toolkit", "pyfmodex"}   # left out of the build (see lefilter.spec)
 LICENSE_FILE = re.compile(r"(^|/)(LICEN[CS]E|COPYING|NOTICE|AUTHORS)[^/]*$", re.I)
 
 
