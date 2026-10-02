@@ -17,6 +17,7 @@ GAME_FOLDER = "Last Epoch"
 DATA_FOLDER = "Last Epoch_Data"
 
 HOME = Path.home()
+FLATPAK_HOME = HOME / ".var/app/com.valvesoftware.Steam"   # Flatpak Steam's home folder as seen from outside
 # Windows (plus the registry, see _steam_roots), WSL, and native / Flatpak / Snap Steam on Linux.
 STEAM_ROOTS = [
     Path(r"C:\Program Files (x86)\Steam"),
@@ -26,7 +27,7 @@ STEAM_ROOTS = [
     HOME / ".steam/steam",
     HOME / ".steam/root",
     HOME / ".local/share/Steam",
-    HOME / ".var/app/com.valvesoftware.Steam/.local/share/Steam",
+    FLATPAK_HOME / ".local/share/Steam",
     HOME / "snap/steam/common/.local/share/Steam",
 ]
 
@@ -107,19 +108,38 @@ def _steam_roots() -> list[Path]:
     return roots
 
 
+def _outside_sandbox(path: Path, steam_root: Path) -> Path:
+    """Flatpak Steam writes paths as it sees them inside its sandbox, where its home folder is
+    FLATPAK_HOME: map those onto the real folder."""
+    try:
+        if not path.exists() and steam_root.resolve().is_relative_to(FLATPAK_HOME.resolve()) and path.is_relative_to(HOME):
+            return FLATPAK_HOME / path.relative_to(HOME)
+    except OSError:
+        pass
+    return path
+
+
 def _steam_libraries(steam_root: Path) -> list[tuple[Path, bool]]:
-    """(library path, has Last Epoch) for every library in libraryfolders.vdf."""
+    """(library path, has Last Epoch) for every library in libraryfolders.vdf, plus the Steam
+    folder itself (its default library)."""
     vdf = steam_root / "steamapps" / "libraryfolders.vdf"
-    if not vdf.is_file():
-        return []
-    text = vdf.read_text(encoding="utf-8", errors="replace")
+    text = vdf.read_text(encoding="utf-8", errors="replace") if vdf.is_file() else ""
     paths = list(re.finditer(r'"path"\s+"([^"]+)"', text))
     libs = []
     for i, m in enumerate(paths):
         end = paths[i + 1].start() if i + 1 < len(paths) else len(text)
         has_app = re.search(rf'"{APP_ID}"\s+"', text[m.end():end]) is not None
-        libs.append((to_local_path(m[1].replace("\\\\", "\\")), has_app))
+        libs.append((_outside_sandbox(to_local_path(m[1].replace("\\\\", "\\")), steam_root), has_app))
+    if not any(_same(lib, steam_root) for lib, _ in libs):
+        libs.append((steam_root, False))
     return libs
+
+
+def _same(a: Path, b: Path) -> bool:
+    try:
+        return a.resolve() == b.resolve()
+    except OSError:
+        return a == b
 
 
 def _read_steam_build(library: Path) -> str | None:
@@ -204,7 +224,7 @@ def find_filters_dir() -> Path | None:
     else:
         candidates = list(Path("/mnt/c/Users").glob(f"*/{FILTERS_SUBPATH.as_posix()}"))
         for steam_root in _steam_roots():
-            for lib, _ in _steam_libraries(steam_root) or [(steam_root, False)]:
+            for lib, _ in _steam_libraries(steam_root):
                 candidates.append(lib / PROTON_USER / FILTERS_SUBPATH)
     existing = [c for c in candidates if c.is_dir()]
     return max(existing, key=lambda p: p.stat().st_mtime) if existing else None

@@ -123,11 +123,14 @@ function applyLanguage(en, tr) {
   return meta;
 }
 
+let langSeq = 0;   // only the latest language choice applies, however the loads finish
 async function setLanguage(code) {
+  const seq = ++langSeq;
   let tr = null;
   if (code && code !== "en") {
-    try { tr = await api(`/api/lang?code=${encodeURIComponent(code)}`); } catch (e) { toast(`Language ${code}: ${e.message}`, true); code = null; }
+    try { tr = await api(`/api/lang?code=${encodeURIComponent(code)}`); } catch (e) { if (seq === langSeq) toast(`Language ${code}: ${e.message}`, true); code = null; }
   }
+  if (seq !== langSeq) return;
   S.meta = applyLanguage(META_EN, tr);
   indexMeta(S.meta);
   if (code) store.set("lang", code);   // a failed load keeps the saved choice for next time
@@ -597,15 +600,21 @@ function renderList() {
       class: cls.join(" "), draggable: "true", "data-i": i,
       onclick: () => { S.sel = i; renderList(); renderEditor(); },
       ondragstart: (e) => { dragFrom = i; e.dataTransfer.effectAllowed = "move"; },
+      ondragend: () => { dragFrom = null; },
       ondragover: (e) => {
+        if (dragFrom == null) return;   // text or files dragged in: not a rule move
         e.preventDefault();
         const after = dropAfter(li, e);
         li.classList.toggle("drop-after", after); li.classList.toggle("drop-before", !after);
       },
       ondragleave: () => li.classList.remove("drop-after", "drop-before"),
       ondrop: (e) => {
+        li.classList.remove("drop-after", "drop-before");
+        if (dragFrom == null) return;
         e.preventDefault();
-        moveRule(dragFrom, i + (dropAfter(li, e) ? 1 : 0));
+        const from = dragFrom;
+        dragFrom = null;
+        moveRule(from, i + (dropAfter(li, e) ? 1 : 0));
       },
     },
     h("span", { class: "rule-idx" }, i + 1),
@@ -847,13 +856,17 @@ function ruleTypeIds(rule) {
 
 /* ---------- affix values as the game shows them ---------- */
 
-/** Whether a rule targets omen idols only (one idol type, only its omen bases picked): their
- *  affixes use the omen modifier instead of the idol type's. */
-function ruleIsOmen(rule) {
+/** For a rule that targets omen idols only (one idol type, only its omen bases picked): the ids
+ *  of the affixes those omen idols roll (they add the 4x1 / 1x4 / 2x2 affixes and use the omen
+ *  modifier instead of the idol type's). null for any other rule. */
+function ruleOmenPool(rule) {
   const c = rule.conditions.find((x) => x.type === "SubTypeCondition" && !x.raw);
-  if (!c || c.types.length !== 1 || !c.subtypes?.length) return false;
+  if (!c || c.types.length !== 1 || !c.subtypes?.length) return null;
   const base = M.base.get(c.types[0]);
-  return !!base && c.subtypes.every((id) => base.subtypes.find((s) => s.id === id)?.omen);
+  if (!base || !c.subtypes.every((id) => base.subtypes.find((s) => s.id === id)?.omen)) return null;
+  const kinds = S.meta.idol_kinds.filter((k) => k.variant === "omen" && k.type === c.types[0]
+    && c.subtypes.some((id) => k.subtypes.includes(id)));
+  return new Set(kinds.flatMap((k) => k.pool.map((p) => p.id)));
 }
 
 /** Round half to even in single precision, as the game rounds values. */
@@ -888,7 +901,7 @@ function lineText(line, valueText) {
 /** A tier's range "+4-5%", or the single value. */
 function tierRangeText(line, tier, scale) {
   const [lo, hi] = line.tiers[tier];
-  return valueRange(line, fmtNumber(lo * scale, line), fmtNumber(hi * scale, line));
+  return valueRange(line, fmtNumber(scaled(lo, scale), line), fmtNumber(scaled(hi, scale), line));
 }
 
 /** Value scale on an item type: (1 + type modifier) / (1 + the affix's standard modifier); omen
@@ -900,8 +913,15 @@ function affixScale(affix, typeIds, omen = false) {
   if (!base) return 1;
   if (!omen && affix.rolls_on && !affix.rolls_on.includes(id)) return 1;
   const mod = omen ? (S.meta.omen_affix_mod ?? 0) : base.affix_mod;
-  return mod == null ? 1 : (1 + mod) / (1 + (affix.std || 0));
+  const std = affix.std || 0;
+  if (mod == null || mod === std) return 1;
+  // Affix.getModifier, in single precision like the game: (1 + mod) / (1 + std) - 1, then 1 + that
+  const f = Math.fround;
+  return f(1 + f(f(f(mod + 1) / f(std + 1)) - 1));
 }
+
+/** A roll on another item type: roll x scale, in single precision like the game. */
+const scaled = (v, scale) => (scale === 1 ? v : Math.fround(Math.fround(v) * scale));
 
 /** Tiers a rule's advanced tier comparison allows, as [lo, hi] (1-based), null = any, [] = none. */
 function conditionTiers(c, count) {
@@ -922,7 +942,7 @@ function affixValueSummary(affix, tiers, scale) {
     const [lo, hi] = tiers ? [tiers[0], Math.min(n, tiers[1])] : (n === 1 ? [1, 1] : [0, 0]);
     if (!n || !lo || lo > hi) return lineText(line, valueRange(line, "x"));
     if (lo === hi) return lineText(line, tierRangeText(line, lo - 1, scale));
-    const v = (t, i) => fmtNumber(line.tiers[t - 1][i] * scale, line);
+    const v = (t, i) => fmtNumber(scaled(line.tiers[t - 1][i], scale), line);
     return lineText(line, valueRange(line, `(${v(lo, 0)}/${v(hi, 0)})`, `(${v(lo, 1)}/${v(hi, 1)})`));
   }).join(" / ");
 }
@@ -996,20 +1016,21 @@ function searchPicker(items, isSelected, onAdd, placeholder) {
 
 function affixEditor(rule, c) {
   const re = { editor: true };
-  const typeIds = ruleTypeIds(rule), omen = ruleIsOmen(rule);
+  const typeIds = ruleTypeIds(rule), omenPool = ruleOmenPool(rule);
+  const omenOf = (a) => !!omenPool?.has(a.id);
   const showAll = SHOW_ALL_AFFIXES.has(c);
   const tiersOf = (a) => conditionTiers(c, Math.max(1, ...(a.lines || []).map((l) => l.tiers.length)));
   const items = S.meta.affixes
-    .filter((a) => showAll || !typeIds.size || a.rolls_on.some((t) => typeIds.has(t)))
+    .filter((a) => showAll || (omenPool ? omenPool.has(a.id) : !typeIds.size || a.rolls_on.some((t) => typeIds.has(t))))
     .map((a) => ({ id: a.id, label: a.name, alt: a.en_name, group: `${catName(a.header)} · ${catName(a.category)}`,
       meta: [a.prefix ? "prefix" : "suffix", a.idol ? "idol" : ""].filter(Boolean).join(" "),
-      cell: () => affixValueCell(a, { tiers: tiersOf(a), typeIds, omen }) }))
+      cell: () => affixValueCell(a, { tiers: tiersOf(a), typeIds, omen: omenOf(a) }) }))
     .sort((a, b) => a.group.localeCompare(b.group) || a.label.localeCompare(b.label));
   const sel = new Set(c.affixes);
   return h("div", {},
     h("div", { class: "selected-list" }, c.affixes.length ? c.affixes.map((id) => {
       const a = M.affix.get(id);
-      return h("span", { class: "chip on", onmousemove: a?.lines?.length ? (e) => showTip(e, affixTierTable(a, tiersOf(a), affixScale(a, typeIds, omen), typeIds, omen)) : null,
+      return h("span", { class: "chip on", onmousemove: a?.lines?.length ? (e) => showTip(e, affixTierTable(a, tiersOf(a), affixScale(a, typeIds, omenOf(a)), typeIds, omenOf(a))) : null,
         onmouseleave: hideTip }, affixName(id), h("button", { title: "remove", onclick: () => { hideTip(); mutate(() => { c.affixes = c.affixes.filter((x) => x !== id); }, re); } }, "×"));
     })
       : h("span", { class: "hint" }, "No affixes listed: any affix counts.")),

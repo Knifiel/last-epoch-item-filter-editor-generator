@@ -7,8 +7,8 @@ editor overlays them on the English data; its own UI stays English. Rule names w
 filters stay English.
 
 Language rules from the game's language models (DescriptorPreferences): Korean puts the value
-after the text, leaves out the "to" / "of" words, puts stat modifier words last and drops the
-value slot "{0}" from affix names.
+after the text, leaves out the "to" / "of" words, puts stat modifier words last with the value
+in front of them ("방어도 {0} 증가") and drops the value slot "{0}" from affix names.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ TABLES = ("Item_Names", *TEXT_TABLES)
 GRAMMAR_TAG = re.compile(r"(\[[MFNmfn]?[sp]\])")     # [ms] [fs] [ns] [p] ...: gender / number for the game's grammar
 NAME_BRACES = re.compile(r"\{([^{}0-9][^{}]*)\}")    # Japanese {skill name} marks; {0} (value slot) stays
 LANGUAGE_PREFS = {"ko": {"value_after": True, "omit_added_to": True, "omit_percent_of": True,
-                         "modifiers_last": True, "strip_value_tag": True}}
+                         "modifiers_last": True, "values_prepend_modifiers": True, "strip_value_tag": True}}
 
 
 def clean(text: str | None) -> str | None:

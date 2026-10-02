@@ -12,7 +12,9 @@ LISTS = PropertyLists(
             51: {"propertyName": "Leech", "roundingForAdded": THOUSANDTH, "displayAddedAsPercentage": True,
                  "displayAsPercentageOf": True},
             115: {"propertyName": "More Damage", "roundingForMore": HUNDREDTH,
-                  "moreRoundingOverrides": [{"specialTag": 16, "roundingForMore": THOUSANDTH}]}},
+                  "moreRoundingOverrides": [{"specialTag": 16, "roundingForMore": THOUSANDTH}]},
+            43: {"propertyName": "Increased Ailment Effect", "roundingForAdded": HUNDREDTH, "dontDisplayPlus": True}},
+    penetration_ailments={1},                                                  # Ignite adds penetration
     ability={120: [{}, {}, {}, {"roundingForAdded": HUNDREDTH, "displayAddedAsPercentage": True, "dontDisplayPlus": True}]},
     player=[{}, {}, {}, {}, {"roundingForAdded": INTEGER},
             {"roundingForAdded": INTEGER, "hideModifierValue": True}],
@@ -23,8 +25,10 @@ TABLES = {
                     "0,8,0,4": "Reduced Fire Damage", "30,0,0,2": "All Resistances",
                     "51,2,0,1": "of Lightning Damage Leeched as Health", "98,4,0,0": "Bees Per 10 Seconds",
                     "58,120,3,0": "Increased Skeleton Damage", "115,0,16,0,5": "More Damage per stack of Frailty",
-                    "98,3": "increased Damage Over Time for Minions"},
-    "Item_Affixes": {"Item_Affix_20_DisplayName": "Health On Kill", "ItemAffix_314_Affix_A": "Damage Reflected for Skeletons"},
+                    "98,3": "unused: the game never reads these two-part keys", "43,8,1,0,0": "Fire Penetration with Ignite",
+                    "43,0,8,0,0": "Armor Shred Effect", "98,275,0,0,6": "Damage over Time taken while you have Haste"},
+    "Item_Affixes": {"Item_Affix_20_DisplayName": "Health On Kill", "Item_Affix_98_DisplayName": "Damage Over Time for Minions",
+                     "Item_Affix_1003_DisplayName": "Increased Health Leech"},
 }
 
 
@@ -92,15 +96,29 @@ def test_ability_and_player_stats_use_their_own_lists():
 def test_display_name_affixes_and_multi_affix_lines():
     (kill,) = lines(single(20, 7, 0, ADDED, [(2, 2)], generated=0))
     assert kill["source"] == ["Item_Affixes", "Item_Affix_20_DisplayName", 0] and text(kill) == "+2 Health On Kill"
-    (dot,) = lines(single(98, 0, 8192, INCREASED, [(0.1, 0.2)], generated=0))
+    (dot,) = lines(single(98, 0, 8192, INCREASED, [(0.1, 0.2)], generated=0))      # display name + the prefix word
+    assert dot["source"] == ["Item_Affixes", "Item_Affix_98_DisplayName", PREFIX_INCREASED]
     assert text(dot) == "10-20% increased Damage Over Time for Minions"
-    affix = {"affixId": 314, "affixName": "Damage Reflected For Skeletons And Mages", "affixDisplayName": "",
-             "affixProperties": [{"property": 0, "tags": 0, "specialTag": 77, "extraTag": 0, "modifierType": ADDED},
-                                 {"property": 7, "tags": 0, "specialTag": 0, "extraTag": 0, "modifierType": ADDED}],
-             "tiers": [{"minRoll": 0.2, "maxRoll": 0.4, "extraRolls": [{"minRoll": 5, "maxRoll": 5}]}]}
+    (leech,) = lines(single(1003, 0, 0, INCREASED, [(0.1, 0.1)], generated=0))   # the game doesn't drop a doubled word
+    assert text(leech) == "10% increased Increased Health Leech"
+    affix = {"affixId": 992, "affixName": "Haste Armor", "affixDisplayName": "",
+             "affixProperties": [{"property": 7, "tags": 0, "specialTag": 0, "extraTag": 0, "modifierType": ADDED,
+                                  "modDisplayName": "", "useGeneratedNameForDisplayName": 1},
+                                 {"property": 98, "tags": 275, "specialTag": 0, "extraTag": 0, "modifierType": MORE,
+                                  "modDisplayName": "Reduced Armor during Haste", "useGeneratedNameForDisplayName": 0}],
+             "tiers": [{"minRoll": 5, "maxRoll": 5, "extraRolls": [{"minRoll": -0.2, "maxRoll": -0.1}]}]}
     first, second = lines(affix)
-    assert first["text"] == "Damage Reflected for Skeletons" and second["text"] == "Health"
-    assert first["tiers"] == [[0.2, 0.4]] and second["tiers"] == [[5, 5]]
+    assert first["text"] == "Health" and first["tiers"] == [[5, 5]]
+    # English shows the property's own name; other languages resolve the descriptor (source)
+    assert second["text"] == "less Reduced Armor during Haste" and second["tiers"] == [[0.1, 0.2]]
+    assert second["source"] == ["Descriptors", "98,275,0,0,6", 0]
+
+
+def test_penetration_ailments_use_the_penetration_info():
+    (ignite,) = lines(single(182, 43, 8, ADDED, [(0.09, 0.16)], special=1))
+    assert text(ignite) == "+9-16% Fire Penetration with Ignite"
+    (shred,) = lines(single(370, 43, 0, ADDED, [(0.1, 0.2)], special=8))
+    assert text(shred) == "10-20% Armor Shred Effect"
 
 
 def test_idol_altar_stats_use_the_altar_list():
@@ -116,9 +134,12 @@ def test_values_round_half_to_even_in_single_precision():
 
 def test_korean_puts_values_after_and_omits_to():
     words = {PREFIX_ADDED_TO: "~", PREFIX_INCREASED: "증가"}
-    ko = {"value_after": True, "omit_added_to": True, "modifiers_last": True}
+    ko = {"value_after": True, "omit_added_to": True, "modifiers_last": True, "values_prepend_modifiers": True}
     assert resolve(["Descriptors", "k", PREFIX_ADDED_TO], {"Descriptors": {"k": "모든 저항"}}, words, ko) == "모든 저항"
-    assert resolve(["Item_Affixes", "n", PREFIX_INCREASED], {"Item_Affixes": {"n": "방어도"}}, words, ko) == "방어도 증가"
+    armor = resolve(["Item_Affixes", "n", PREFIX_INCREASED], {"Item_Affixes": {"n": "방어도"}}, words, ko)
+    assert armor == "방어도 {0} 증가"
+    line = {"text": armor, "sign": "", "step": 0.01, "mult": 100, "percent": True, "hide": False}
+    assert format_line(line, 0.1, 0.1, value_after=True) == "방어도 10% 증가"
     line = {"text": "냉기 저항", "sign": "+", "step": 0.01, "mult": 100, "percent": True, "hide": False}
     assert format_line(line, 0.04, 0.04, value_after=True) == "냉기 저항 +4%"
 

@@ -174,7 +174,8 @@ table.checks tr.hit td { background: #1d2a1f; }
 table.checks tr.after td { opacity: .45; }
 table.checks .why { color: var(--muted); }
 
-dialog { background: var(--panel); color: var(--text); border: 1px solid var(--gold-dim); border-radius: 8px; min-width: 380px; }
+dialog { background: var(--panel); color: var(--text); border: 1px solid var(--gold-dim); border-radius: 8px; min-width: 380px;
+  max-width: min(760px, calc(100vw - 32px)); }
 dialog::backdrop { background: rgba(0,0,0,.6); }
 dialog .row { justify-content: flex-end; margin-top: 14px; }
 dialog .row.fields { justify-content: flex-start; margin-top: 8px; }

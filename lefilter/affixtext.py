@@ -5,15 +5,18 @@ Mirrors the game's tooltip code (TooltipItemManager.FormatAffix -> ModFormatting
 - display rules (rounding, percentage, plus sign, hidden value) come from the stat's property
   info: PropertyList.GetPropertyInfo picks the ability's own list for ability stats (property 58:
   tags = ability, specialTag = its stat), the player property list for property 98 (tags = index),
-  the idol altar list for altar stats (130) and the master list for everything else;
+  the idol altar list for altar stats (130), the Penetration info for "increased effect" of an
+  ailment that adds penetration (43 with such an ailment in specialTag) and the master list for
+  everything else;
 - the prefix is GetPrefixModifier: added -> none / "of" (percentage of) / "to" (added to),
   increased -> increased / reduced (none when the stat's name already says it), more -> more /
   less; negative rolls use reduced / less and print without a sign;
-- the text is the affix's display name (Item_Affix_<id>_DisplayName, or the Descriptors entry
-  "<id>,<prefix>") for single affixes not flagged useGeneratedNameForDisplayName, else the
-  Descriptors entry "property,tags,specialTag[,extraTag],prefix" ("to" is put in front of
-  added-to texts, which the table leaves out); multi-affix lines without one use the affix's
-  per-line text (Affix_A / Affix_B);
+- the text is the affix's display name (Item_Affix_<id>_DisplayName) with the prefix's word in
+  front (AddModifierPrefix, which doesn't mind a doubled word) for single affixes not flagged
+  useGeneratedNameForDisplayName; in English, a multi-affix property flagged so shows its own
+  modDisplayName the same way; everything else uses the Descriptors entry
+  "property,tags,specialTag[,extraTag],prefix" ("to" is put in front of added-to texts, which
+  the table leaves out), else a text composed from the stat's name (English only, as the game);
 - values are rounded the game's way (to even, in single precision) to the stat's step, then
   shown x100 (or x10) for percentages.
 
@@ -33,6 +36,7 @@ PREFIX_NONE, PREFIX_PERCENT_OF, PREFIX_ADDED_TO, PREFIX_INCREASED, PREFIX_REDUCE
 HUNDREDTH, INTEGER, TENTH, THOUSANDTH = range(4)      # PropertyRounding
 STEP = {HUNDREDTH: 0.01, INTEGER: 1.0, TENTH: 0.1, THOUSANDTH: 0.001}
 ABILITY_PROPERTY, PLAYER_PROPERTY, IDOL_ALTAR_PROPERTY = 58, 98, 130
+AILMENT_EFFECT_PROPERTY, PENETRATION_PROPERTY = 43, 59     # IncreasedAilmentEffect, Penetration
 
 # Common-table words AddModifierPrefix puts in front of a descriptor, per prefix.
 WORD_KEYS = {PREFIX_PERCENT_OF: "ModFormat_PercentageOfPrefix_Of", PREFIX_ADDED_TO: "ModFormat_AddedToPrefix_To",
@@ -58,11 +62,12 @@ class PropertyLists:
     player_default: dict = field(default_factory=dict)
     altar: list[dict] | None = None
     altar_default: dict = field(default_factory=dict)
+    penetration_ailments: set[int] = field(default_factory=set)   # ailment ids whose effect adds penetration
 
     @classmethod
     def from_game(cls, property_list: dict | None, ability_list: dict | None = None, player_list: dict | None = None,
-                  altar_list: dict | None = None) -> "PropertyLists":
-        lists = cls()
+                  altar_list: dict | None = None, penetration_ailments: set[int] | None = None) -> "PropertyLists":
+        lists = cls(penetration_ailments=set(penetration_ailments or ()))
         if property_list:
             lists.master = {i["property"]: i for i in property_list["propertyInfoList"]}
             lists.default = property_list.get("defaultProperty") or {}
@@ -83,6 +88,8 @@ class PropertyLists:
             return self.player[tags] if tags < len(self.player) else self.player_default
         if prop == IDOL_ALTAR_PROPERTY and self.altar is not None:
             return self.altar[tags] if tags < len(self.altar) else self.altar_default
+        if prop == AILMENT_EFFECT_PROPERTY and special in self.penetration_ailments:
+            prop = PENETRATION_PROPERTY
         return self.master.get(prop, self.default)
 
 
@@ -143,18 +150,21 @@ def compose(prop: int, tags: int, prefix: int, infos: dict[int, dict]) -> str:
 
 
 def with_word(text: str, prefix: int, words: dict[int, str], prefs: dict | None = None) -> str:
-    """AddModifierPrefix: the prefix's word in front (after it where the language puts stat
-    modifiers last; left out where the language omits it), unless the text already has it."""
+    """AddModifierPrefix: the prefix's word in front of the text (the game doesn't check for a
+    doubled word). Language rules: the "to" / "of" words left out, and modifier words after the
+    text with the value's place "{0}" before them (Korean: "방어도 {0} 증가")."""
     prefs = prefs or {}
     word = words.get(prefix)
     if not word:
         return text
     if (prefix == PREFIX_ADDED_TO and prefs.get("omit_added_to")) or (prefix == PREFIX_PERCENT_OF and prefs.get("omit_percent_of")):
         return text
-    low, w = text.lower(), word.lower()
-    if prefix >= PREFIX_INCREASED and prefs.get("modifiers_last"):
-        return text if low.endswith(" " + w) else f"{text} {word}"
-    return text if low.startswith(w + " ") else f"{word} {text}"
+    if prefix >= PREFIX_INCREASED:
+        if prefs.get("values_prepend_modifiers"):
+            word = "{0} " + word
+        if prefs.get("modifiers_last"):
+            return f"{text} {word}"
+    return f"{word} {text}"
 
 
 def resolve(source: list | None, tables: dict[str, dict[str, str]], words: dict[int, str],
@@ -169,31 +179,24 @@ def resolve(source: list | None, tables: dict[str, dict[str, str]], words: dict[
     return with_word(text, word, words, prefs) if word else text
 
 
-def text_source(affix: dict, index: int, p: dict, prefix: int, tables: dict[str, dict[str, str]]) -> list | None:
+def text_source(affix: dict, p: dict, prefix: int, tables: dict[str, dict[str, str]]) -> list | None:
     """Where the line's text comes from: [table, key, prefix whose word goes in front (0 = none)]."""
     descriptors, names = tables.get("Descriptors", {}), tables.get("Item_Affixes", {})
-    aid, multi = affix["affixId"], "affixProperties" in affix
-    if not multi and not affix.get("useGeneratedNameForDisplayName", 1):
-        if descriptors.get(f"{aid},{prefix}"):
-            return ["Descriptors", f"{aid},{prefix}", 0]
-        if names.get(f"Item_Affix_{aid}_DisplayName"):
+    aid = affix["affixId"]
+    if "affixProperties" not in affix and not affix.get("useGeneratedNameForDisplayName", 1):
+        if (names.get(f"Item_Affix_{aid}_DisplayName") or "").strip():
             return ["Item_Affixes", f"Item_Affix_{aid}_DisplayName", prefix]
     tail = f"{p['property']},{p['tags']},{p['specialTag']}"
     for key in (f"{tail},{p.get('extraTag', 0)},{prefix}", f"{tail},{prefix}"):
         if descriptors.get(key):
             return ["Descriptors", key, PREFIX_ADDED_TO if prefix == PREFIX_ADDED_TO else 0]
-    if multi and index < 2:
-        part = "AB"[index]
-        for key in (f"Item_Affix_{aid}_Affix_{part}", f"ItemAffix_{aid}_Affix_{part}"):
-            if names.get(key):
-                return ["Item_Affixes", key, prefix]
     return None
 
 
 def _properties(affix: dict) -> list[dict]:
     if "affixProperties" in affix:
         return affix["affixProperties"]
-    return [{k: affix[k] for k in ("property", "tags", "specialTag", "extraTag", "modifierType")}]
+    return [{k: affix.get(k, 0) for k in ("property", "tags", "specialTag", "extraTag", "modifierType")}]
 
 
 def _fallback_text(affix: dict, index: int, p: dict, info: dict, prefix: int, lists: PropertyLists) -> str:
@@ -234,8 +237,11 @@ def affix_lines(affix: dict, lists: PropertyLists, tables: dict[str, dict[str, s
         prefix = prefix_type(mod, info, positive)
         rnd = rounding(info, mod, p["specialTag"])
         mult, percent = display(info, mod, rnd)
-        source = text_source(affix, i, p, prefix, tables)
-        text = resolve(source, tables, words) or _fallback_text(affix, i, p, info, prefix, lists)
+        source = text_source(affix, p, prefix, tables)
+        if "affixProperties" in affix and not p.get("useGeneratedNameForDisplayName", 1) and (p.get("modDisplayName") or "").strip():
+            text = with_word(p["modDisplayName"], prefix, words)   # English only: other languages use `source`
+        else:
+            text = resolve(source, tables, words) or _fallback_text(affix, i, p, info, prefix, lists)
         tiers = [sorted((round(abs(a), 6), round(abs(b), 6))) for a, b in rolls]
         lines.append({"text": text, "source": source, "sign": sign(info, mod, positive), "step": STEP[rnd],
                       "mult": mult, "percent": percent, "hide": bool(info.get("hideModifierValue")), "tiers": tiers})

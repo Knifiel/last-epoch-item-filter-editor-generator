@@ -22,6 +22,7 @@ from .sections import RuleInfo, place
 from .starter import ensure_template
 from .report import build_report, histogram_markdown, leveling_markdown
 from .rules import ConfigError, Rule, RuleSpec, plan_affix_rules, plan_class_hide, plan_rules
+from .tools import ToolError
 
 DATA_FILE = DATA_DIR / "uniques.json"
 MARKER_RE = re.compile(r"\s*\[auto-uniques[^\]]*\]")
@@ -276,14 +277,19 @@ def cmd_ui(args) -> None:
 
 
 def cmd_selftest(args) -> None:
-    """Load every component extraction needs (the release build runs this to catch missing pieces)."""
+    """Load every component extraction needs (the release build runs this to catch missing pieces).
+    TypeTreeGeneratorAPI isn't part of the packaged app: it's fetched on first use (tools.py)."""
     import importlib
-    from . import extract  # noqa: F401  (UnityPy, with FMOD stubbed out)
+    import platform
+    from . import extract, tools  # noqa: F401  (UnityPy, with FMOD stubbed out)
     for module in ("UnityPy.export.Texture2DConverter", "UnityPy.export.SpriteHelper", "texture2ddecoder", "etcpak",
-                   "astc_encoder", "TypeTreeGeneratorAPI", "lefilter.ui"):
+                   "astc_encoder", "ctypes", "zipfile", "ssl", "lefilter.ui"):
         importlib.import_module(module)
-    from TypeTreeGeneratorAPI import TypeTreeGenerator
-    TypeTreeGenerator("2022.3.0f1", "AssetStudio")
+    if (platform.system(), platform.machine().lower()) not in tools.TTG_WHEELS:
+        sys.exit(f"no TypeTreeGeneratorAPI build known for {platform.system()} {platform.machine()}")
+    if platform.system() not in tools.CPP2IL_ASSETS:
+        sys.exit(f"no Cpp2IL build known for {platform.system()}")
+    tools.ssl_context()
     from .ui import WEB_DIR
     missing = [f for f in ("index.html", "app.js", "app.css") if not (WEB_DIR / f).is_file()]
     if missing:
@@ -331,7 +337,7 @@ def main(argv=None) -> None:
         prepare_user_dir()
     try:
         args.func(args)
-    except (ConfigError, ExtractError, GameNotFound, ValueError) as e:
+    except (ConfigError, ExtractError, GameNotFound, ToolError, ValueError) as e:
         sys.exit(f"error: {e}")
 
 

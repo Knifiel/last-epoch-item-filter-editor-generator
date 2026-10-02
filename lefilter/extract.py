@@ -9,12 +9,10 @@ Everything else comes from bundles that embed their own type trees.
 from __future__ import annotations
 
 import json
-import platform
-import stat
+import shutil
 import subprocess
 import sys
 import types
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,20 +23,12 @@ except Exception:
 
 import UnityPy
 
-from . import affixtext
+from . import affixtext, tools
 from .game import Game, locale_bundles, prune_cache, snapshot
 from .i18n import TEXT_TABLES, write_languages
 from .gamedata import EQUIPMENT_TYPES, RARITY_COLOR_IDS
 
 from .paths import SCHEMA_DIR           # optional hand-made type trees (checked after the cached ones)
-
-CPP2IL_VERSION = "2022.1.0-pre-release.21"
-CPP2IL_ASSETS = {
-    "Linux": f"Cpp2IL-{CPP2IL_VERSION}-Linux",
-    "Windows": f"Cpp2IL-{CPP2IL_VERSION}-Windows.exe",
-    "Darwin": f"Cpp2IL-{CPP2IL_VERSION}-OSX",
-}
-CPP2IL_URL = "https://github.com/SamboyCoding/Cpp2IL/releases/download/{version}/{asset}"
 
 WEAVERS_WILL = 1  # UniqueList.LegendaryType.WeaversWill
 DATA_VERSION = 10  # bump when data/uniques.json gains fields, so `build` re-extracts
@@ -130,68 +120,86 @@ PROPERTY_LISTS = {"PropertyList": ("MasterPropertyList", "propertyInfoList"),
 SCHEMA_CLASSES = ("UniqueList", *PROPERTY_LISTS)
 
 
-def _ensure_cpp2il(tools_dir: Path) -> Path:
-    asset = CPP2IL_ASSETS.get(platform.system())
-    if not asset:
-        raise ExtractError(f"no Cpp2IL build for {platform.system()}")
-    exe = tools_dir / asset
-    if not exe.exists():
-        tools_dir.mkdir(parents=True, exist_ok=True)
-        url = CPP2IL_URL.format(version=CPP2IL_VERSION, asset=asset)
-        print(f"Downloading Cpp2IL ({url}) ...")
-        urllib.request.urlretrieve(url, exe)
-        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
-    return exe
-
-
 def regenerate_schema(game: Game, cache_root: Path, cls: str = "UniqueList") -> Path:
-    """Rebuild the type trees (LE.dll) of every class in SCHEMA_CLASSES from GameAssembly.dll +
-    global-metadata.dat; returns the one for `cls`."""
+    """Rebuild the type trees (LE.dll) of the classes in SCHEMA_CLASSES from GameAssembly.dll +
+    global-metadata.dat; returns the one for `cls`. Only a failure for `cls` itself is an error."""
     try:
-        from TypeTreeGeneratorAPI import TypeTreeGenerator
-    except ImportError as e:
-        raise ExtractError("schema regeneration needs `pip install TypeTreeGeneratorAPI`") from e
-
+        TypeTreeGenerator = tools.type_tree_generator(cache_root / "tools")
+    except tools.ToolError as e:
+        raise ExtractError(str(e)) from e
     snap = snapshot(game, cache_root, include_il2cpp=True)
     unity_version = UnityPy.load(str(snap / "globalgamemanagers")).objects[0].assets_file.unity_version
     out_dir = cache_root / "cpp2il" / game.short_hash
-    if not any(out_dir.glob("*.dll")):
-        exe = _ensure_cpp2il(cache_root / "tools")
+    done = out_dir / ".complete"
+    if not done.is_file():   # a run that was cut short leaves no marker and is redone
+        try:
+            exe = tools.ensure_cpp2il(cache_root / "tools")
+        except tools.ToolError as e:
+            raise ExtractError(str(e)) from e
         print("Running Cpp2IL on the game's code to recover class layouts (takes about a minute) ...")
+        tmp = out_dir.with_name(out_dir.name + ".part")
+        shutil.rmtree(tmp, ignore_errors=True)
         # dll_empty + attributeinjector keeps [SerializeField] on private fields,
         # which the type-tree generator needs to see e.g. levelRequirement.
-        subprocess.run(
-            [str(exe),
-             "--force-binary-path", str(snap / "GameAssembly.dll"),
-             "--force-metadata-path", str(snap / "global-metadata.dat"),
-             "--force-unity-version", unity_version,
-             "--output-as", "dll_empty", "--use-processor", "attributeinjector",
-             "--output-to", str(out_dir)],
-            check=True, stdout=subprocess.DEVNULL,
-        )
-    gen = TypeTreeGenerator(unity_version, "AssetStudio")
-    for dll in sorted(out_dir.glob("*.dll")):
-        gen.load_dll(dll.read_bytes())
+        try:
+            subprocess.run(
+                [str(exe),
+                 "--force-binary-path", str(snap / "GameAssembly.dll"),
+                 "--force-metadata-path", str(snap / "global-metadata.dat"),
+                 "--force-unity-version", unity_version,
+                 "--output-as", "dll_empty", "--use-processor", "attributeinjector",
+                 "--output-to", str(tmp)],
+                check=True, stdout=subprocess.DEVNULL,
+            )
+        except (OSError, subprocess.CalledProcessError) as e:
+            raise ExtractError(f"Cpp2IL couldn't read the game's code ({e}); if an antivirus removed "
+                               f"{exe.name}, allow it and start again") from e
+        shutil.rmtree(out_dir, ignore_errors=True)
+        tmp.replace(out_dir)
+        done.write_text(tools.CPP2IL_VERSION, encoding="utf-8")
+    try:
+        gen = TypeTreeGenerator(unity_version, "AssetStudio")
+        for dll in sorted(out_dir.glob("*.dll")):
+            gen.load_dll(dll.read_bytes())
+    except Exception as e:
+        raise ExtractError(f"couldn't load the game's class layouts: {e}") from e
     folder = cache_root / "schema" / game.short_hash
     folder.mkdir(parents=True, exist_ok=True)
     for name in dict.fromkeys((cls, *SCHEMA_CLASSES)):
-        nodes = json.loads(gen.get_nodes_as_json("LE.dll", name))
+        try:
+            nodes = json.loads(gen.get_nodes_as_json("LE.dll", name))
+        except Exception as e:   # a class a later game build dropped: only `cls` is required here
+            if name == cls:
+                raise ExtractError(f"couldn't recover the {cls} layout from the game's code: {e}") from e
+            continue
         (folder / f"{name}.json").write_text(json.dumps(nodes, indent=0), encoding="utf-8")
     return folder / f"{cls}.json"
 
 
 # --- item, affix and colour lists, names, version ------------------------------
 
-def read_master_lists(snap: Path) -> tuple[dict, dict, dict, dict | None]:
-    """MasterItemsList, MasterAffixesList, MasterColorList and the Idol Altar Property List
-    type trees from PermaLoad.bundle (the altar list only shapes affix texts: None if missing)."""
+def read_master_lists(snap: Path) -> tuple[dict, dict, dict, dict | None, set[int]]:
+    """MasterItemsList, MasterAffixesList, MasterColorList, the Idol Altar Property List and the
+    ids of ailments whose increased effect adds penetration, from PermaLoad.bundle (the last two
+    only shape affix texts: None / empty if missing)."""
     env = UnityPy.load(str(snap / "PermaLoad.bundle"))
     objs = _find_monobehaviours(env, "MasterItemsList", "MasterAffixesList", "MasterColorList")
     try:
         altar = _find_monobehaviour(env, "Idol Altar Property List").read_typetree()
     except ExtractError:
         altar = None
-    return (*(o.read_typetree() for o in objs), altar)
+    return (*(o.read_typetree() for o in objs), altar, _penetration_ailments(env))
+
+
+def _penetration_ailments(env) -> set[int]:
+    """Ailment.effectOfIncreasedEffectiveness == AdditionalPenetration (1), by ailment id."""
+    try:
+        by_path = {o.path_id: o for o in env.objects}
+        ailments = _find_monobehaviour(env, "AilmentList").read_typetree()["list"]
+        rows = (by_path[r["m_PathID"]].read_typetree() for r in ailments if r["m_PathID"] in by_path)
+        return {a["id"] for a in rows if a.get("effectOfIncreasedEffectiveness") == 1}
+    except Exception:
+        return set()
 
 
 def base_item_levels(items: dict) -> dict[tuple[int, int], dict]:
@@ -387,7 +395,7 @@ def extract(game: Game, cache_root: Path, out_path: Path, regen_schema: bool = F
     else:
         uniques, unity_version = _read_or_regenerate(lambda s: read_unique_list(snap, s), game, cache_root, "UniqueList")
 
-    items, affix_list, colors, altar_list = read_master_lists(snap)
+    items, affix_list, colors, altar_list, penetration_ailments = read_master_lists(snap)
     tables = read_string_tables(snap / "strings_en.bundle", snap / "strings_shared.bundle", ("Item_Names",))
     names = tables["Item_Names"]
     records, warnings = build_records(uniques, base_item_levels(items), names)
@@ -405,7 +413,8 @@ def extract(game: Game, cache_root: Path, out_path: Path, regen_schema: bool = F
         except Exception as e:   # only the editor's affix value texts need them
             warnings.append(f"{name} not read (affix values may show wrong): {e}")
     property_lists = affixtext.PropertyLists.from_game(lists.get("PropertyList"), lists.get("AbilityPropertyList"),
-                                                       lists.get("PlayerPropertyList"), altar_list)
+                                                       lists.get("PlayerPropertyList"), altar_list,
+                                                       penetration_ailments)
     data = {
         "data_version": DATA_VERSION,
         "game_version": read_game_version(snap),

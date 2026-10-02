@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -316,6 +318,13 @@ def _open_browser(url: str) -> None:
 
 class _Server(ThreadingHTTPServer):
     daemon_threads = True
+    # On Windows SO_REUSEADDR lets a second editor bind a port the first still listens on.
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self):
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
     def handle_error(self, request, client_address):
         if isinstance(sys.exc_info()[1], ConnectionError):   # the browser dropped a request: nothing to report

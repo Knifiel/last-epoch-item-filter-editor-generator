@@ -58,3 +58,22 @@ def test_prune_cache_keeps_the_current_build(tmp_path):
     removed = game.prune_cache(tmp_path, "abcdef0123456789")
     assert sorted(p.relative_to(tmp_path).as_posix() for p in removed) == ["cpp2il/oldbuild0000", "game/oldbuild0000"]
     assert (tmp_path / "game" / "abcdef012345").is_dir() and (tmp_path / "schema" / "oldbuild0000").is_dir()
+
+
+def test_flatpak_steam_paths_are_mapped_out_of_the_sandbox(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    flatpak_home = home / ".var/app/com.valvesoftware.Steam"
+    root = flatpak_home / ".local/share/Steam"
+    (root / "steamapps").mkdir(parents=True)
+    inside = home / ".local/share/Steam"          # how Steam sees its own folder inside the sandbox
+    (root / "steamapps" / "libraryfolders.vdf").write_text(
+        f'"libraryfolders"\n{{\n "0"\n {{\n  "path" "{inside}"\n  "apps" {{ "{game.APP_ID}" "1" }}\n }}\n}}\n')
+    data = root / "steamapps" / "common" / game.GAME_FOLDER / game.DATA_FOLDER
+    data.mkdir(parents=True)
+    (data / "build_hash.txt").write_text("feedfacecafe0000")
+    monkeypatch.setattr(game, "HOME", home)
+    monkeypatch.setattr(game, "FLATPAK_HOME", flatpak_home)
+    monkeypatch.setattr(game, "STEAM_ROOTS", [root])
+    monkeypatch.setattr(game, "_registry_steam_roots", lambda: [])
+    assert game._steam_libraries(root) == [(root, True)]
+    assert game.find_game().root == root / "steamapps" / "common" / game.GAME_FOLDER
