@@ -24,14 +24,17 @@ program reads all item data from **your own game installation** - no game data c
 2. Unpack it anywhere and start `LastEpochItemFilterEditor` (on Windows double-click the `.exe`;
    Windows may warn that it's from an unknown publisher - "More info" -> "Run anyway"; it isn't
    code-signed, and some antivirus programs flag unsigned one-file Python programs by mistake).
-3. A console window opens and the editor opens in your browser. Keep the window open while you
-   use the editor; close it to stop.
+3. A console window opens (on Linux a terminal window) and the editor opens in your browser.
+   Keep the window open while you use the editor; close it to stop.
 
-The first start reads the game files and takes a minute or two (it also downloads
-[Cpp2IL](https://github.com/SamboyCoding/Cpp2IL) once, see [How the data is read](#how-the-data-is-read));
-later starts are quick, and after a game patch it re-reads the game by itself. If the game isn't
-found, the program asks for its folder (Steam: right-click Last Epoch -> Manage -> Browse local
-files) and remembers it.
+The first start reads the game files and takes a minute or two: it also downloads two helper
+tools once, [Cpp2IL](https://github.com/SamboyCoding/Cpp2IL) from GitHub and
+[TypeTreeGeneratorAPI](https://github.com/K0lb3/TypeTreeGeneratorAPI) from PyPI (see
+[How the data is read](#how-the-data-is-read)). Later starts are quick, and after a game patch it
+re-reads the game by itself. If the game isn't found, the program asks for its folder (Steam:
+right-click Last Epoch -> Manage -> Browse local files) and remembers it. If something goes wrong,
+the window stays open with the error, which is also saved to `last-error.txt` in the program's
+folder (below).
 
 Filters are saved straight into the game's Filters folder; pick them in-game in the loot filter
 menu. Every file the editor overwrites or deletes is backed up first. The program's own files
@@ -136,8 +139,9 @@ build's copy, enable the one for its class (or list classes in `enabled_for`).
 
 ## How the data is read
 
-Everything comes from the local client and stays on your computer; the only download is Cpp2IL
-(once). Nothing taken from the game is part of this repository or its releases.
+Everything comes from the local client and stays on your computer. Nothing taken from the game
+is part of this repository or its releases, and neither are the two tools that read the game's
+code: they're downloaded on first use (pinned versions, checked against known SHA-256 sums).
 
 | data | source in the client |
 |---|---|
@@ -155,9 +159,10 @@ The needed files are copied to `.cache/game/<build>/` first, so the game can be
 running or patching meanwhile (snapshots of older builds are removed). `resources.assets`
 ships without type trees, so the layouts of `UniqueList` and the property lists are
 recovered from the game's `GameAssembly.dll` + `global-metadata.dat` with
-[Cpp2IL](https://github.com/SamboyCoding/Cpp2IL) (downloaded once into `.cache/tools/`) and
-[TypeTreeGeneratorAPI](https://github.com/K0lb3/TypeTreeGeneratorAPI), once per game build, into
-`.cache/schema/<build>/`. Each read must consume the asset exactly or it is rejected. Force a
+[Cpp2IL](https://github.com/SamboyCoding/Cpp2IL) and
+[TypeTreeGeneratorAPI](https://github.com/K0lb3/TypeTreeGeneratorAPI) (both downloaded once into
+`.cache/tools/`; run from source, the pip-installed TypeTreeGeneratorAPI is used), once per game
+build, into `.cache/schema/<build>/`. Each read must consume the asset exactly or it is rejected. Force a
 rebuild with `extract --regen-schema`.
 
 Derived values follow the game's own logic:
