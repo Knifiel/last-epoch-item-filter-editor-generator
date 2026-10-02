@@ -9,7 +9,7 @@ Free for non-commercial use ([license](#license)). Not affiliated with Eleventh 
 
 ## Why
 
-I liked Raxxsterax's approach to loot filters, but maintaining one by hand - and filling in
+I liked [Raxxanterax](#credits)'s approach to loot filters, but maintaining one by hand - and filling in
 filters in-game - was a pain on my laptop: once a filter has a lot of rules, scrolling through
 them in the game's menu gets slow. I also prefer to prepare a filter before making a character,
 and having the whole thing outside the game saves a lot of time.
@@ -301,21 +301,68 @@ Linux) when a `v*` tag is pushed.
 
 ## Credits
 
-- **Raxxsterax** - this tool exists because of his loot
-  filters and the way they're built: drop-rarity and LP ladders for uniques, exalted and T8
-  rules, BiS and shatter sections. His universal filter was the reference for the generated
-  rules.
-- **Eleventh Hour Games** - for Last Epoch and a loot filter system worth building tools for.
-- [UnityPy](https://github.com/K0lb3/UnityPy) and
-  [TypeTreeGeneratorAPI](https://github.com/K0lb3/TypeTreeGeneratorAPI) by K0lb3 - reading the
-  game's Unity assets.
-- [Cpp2IL](https://github.com/SamboyCoding/Cpp2IL) by Samboy063 - recovering the class layouts
-  the game's assets are stored with.
-- [lastepochtools.com](https://www.lastepochtools.com/) - the unique drop-rarity labels (common
-  ... extremely rare) the rarity tiers are matched to.
-- [PyInstaller](https://pyinstaller.org/) - the downloadable executables.
+### People
 
-Bundled third-party licenses ship with each release in `THIRD_PARTY_LICENSES.txt`.
+- **Raxxanterax** - [YouTube](https://www.youtube.com/@Raxxanterax) ·
+  [Twitch](https://www.twitch.tv/raxxanterax) · [X](https://x.com/raxxanterax) ·
+  [Instagram](https://www.instagram.com/rax_xanterax/) · [Discord](https://discord.gg/JXF4TTY) ·
+  [his loot filters](https://github.com/raxxanterax/GAMING) · [raxxanterax.com](https://raxxanterax.com/).
+  This tool exists because of his loot filters and the way they're built: drop-rarity and LP
+  ladders for uniques, exalted and T8 rules, BiS and shatter sections. His
+  [Season 4 Universal Loot Filter](https://www.youtube.com/watch?v=gdeLGcGQrjM) was the reference
+  for the generated rules (the first one:
+  [Last Epoch Loot Filter for All Classes & Builds](https://www.youtube.com/watch?v=j8r7J1EKQyI), 2024).
+- **Dammitt** ([Patreon](https://www.patreon.com/dammitt)) - [Last Epoch Tools](https://www.lastepochtools.com/):
+  the unique drop-rarity labels (common ... extremely rare) the rarity tiers are matched to.
+- **musholic** ([Reddit](https://www.reddit.com/user/musholic), [GitHub](https://github.com/Musholic)) -
+  [Last Epoch Planner](https://github.com/Musholic/LastEpochPlanner): the precedent for an
+  out-of-game Last Epoch tool on GitHub, and the model for this project's third-party disclaimer.
+- **Eleventh Hour Games** - for Last Epoch and a loot filter system worth building tools for.
+
+### Software
+
+- [UnityPy](https://github.com/K0lb3/UnityPy) and
+  [TypeTreeGeneratorAPI](https://github.com/K0lb3/TypeTreeGeneratorAPI) by
+  [K0lb3](https://github.com/K0lb3) - reading the game's Unity assets.
+- [Cpp2IL](https://github.com/SamboyCoding/Cpp2IL) by [Samboy063](https://github.com/SamboyCoding) -
+  recovering the class layouts the game's assets are stored with.
+- [PyInstaller](https://pyinstaller.org/) - the downloadable executables.
+- Texture decoders and the other libraries inside the executables: see `THIRD_PARTY_LICENSES.txt`,
+  which ships with each release.
+
+### Community posts and pages consulted
+
+Read while deciding which platforms to support and how to publish this tool - the game's rules
+and what Eleventh Hour Games has said about community tools:
+
+- Eleventh Hour Games: the [Last Epoch EULA](https://store.steampowered.com/eula/899770_eula_0).
+- [r/LastEpoch](https://www.reddit.com/r/LastEpoch/) and its moderators: the subreddit rules
+  ([archived copy, July 2026](https://web.archive.org/web/20260705065252/https://www.reddit.com/r/LastEpoch/)).
+- Last Epoch forums:
+  - [Sarno](https://forum.lastepoch.com/u/Sarno) (former EHG staff):
+    [JSON export of skill and passive trees?, post 11](https://forum.lastepoch.com/t/json-export-of-skill-and-passive-trees/19974/11) (2020).
+  - [Yayifications](https://forum.lastepoch.com/u/Yayifications) (EHG):
+    [Changes to the Community Tester Program](https://forum.lastepoch.com/t/changes-to-the-community-tester-program/78345/1) (2025)
+    and [RMT and Exploit Statement](https://forum.lastepoch.com/t/rmt-and-exploit-statement/70338) (2024).
+  - EHG_Wick (EHG community manager):
+    [Eterra Monthly: July Edition 2025](https://forum.lastepoch.com/t/eterra-monthly-july-edition-2025/78522).
+  - [EHG_Scott](https://forum.lastepoch.com/u/EHG_Scott) (EHG):
+    [Loot filter suggestions, post 3](https://forum.lastepoch.com/t/loot-filter-suggestions/81731/3) (2026).
+- Reddit, r/LastEpoch:
+  - [u/ekimarcher](https://www.reddit.com/user/ekimarcher) (EHG team):
+    [on mods and tools in offline and online play](https://www.reddit.com/r/LastEpoch/comments/10452hf/any_changes_to_allowing_modding_for_offline_mode/ksfefnb/) (2024).
+  - [u/moxjet200](https://www.reddit.com/user/moxjet200) (Judd, Last Epoch's game director):
+    [on Last Epoch Planner](https://www.reddit.com/r/LastEpoch/comments/1l3cmws/path_of_building_for_last_epoch_v050_new_release/mw0434e/) (2025).
+  - [u/ZeckarIsBae](https://www.reddit.com/user/ZeckarIsBae):
+    [quoting EHG on community tools](https://www.reddit.com/r/LastEpoch/comments/1bqqp6n/path_of_building_for_last_epoch_im_developing_a/kx6lybr/) (2024).
+  - [u/musholic](https://www.reddit.com/user/musholic): the Path of Building for Last Epoch threads
+    ([2024](https://www.reddit.com/r/LastEpoch/comments/1bqqp6n/path_of_building_for_last_epoch_im_developing_a/),
+    [2025](https://www.reddit.com/r/LastEpoch/comments/1l3cmws/path_of_building_for_last_epoch_v050_new_release/)).
+- [Liam Squires-Hand](https://www.gamingonlinux.com/profiles/2/), GamingOnLinux:
+  [Last Epoch drops the Native Linux version, devs tell players to use Proton](https://www.gamingonlinux.com/2024/09/last-epoch-drops-the-native-linux-version-devs-tell-players-to-use-proton/)
+  (2024) - why the Linux build targets Steam with Proton.
+- GitHub's public [DMCA notice archive](https://github.com/github/dmca) - checked for takedowns of
+  Last Epoch tools (there are none).
 
 ## License
 
