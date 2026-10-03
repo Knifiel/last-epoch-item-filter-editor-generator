@@ -101,8 +101,8 @@ emphasized = true
 # --- new-filter template -------------------------------------------------------------
 # templates/New filter.xml is what the editor's "New" starts from (and `build`'s base). It is
 # generated from these parts, top to bottom: the [[affix_rule]]s, the shatter section, the
-# [class_hide] rule, the BiS section, the exalted rules plus a show-all-corrupted and a
-# show-all-legendary rule under one header, the unique / set groups, and a bottom rule hiding everything else (it
+# [class_hide] rule, the BiS section, the exalted rules plus a show-all-corrupted, a
+# show-all-legendary and a show-all-cocooned rule under one header, the unique / set groups, and a bottom rule hiding everything else (it
 # never hides shards, runes, glyphs or keys: the game only applies rules made of non-equipment
 # conditions to those). Edit the template in the editor; "Rebuild template" regenerates it
 # from here. BiS / exalted / corrupted / legendary / shatter / hide rules get no rule_prefix:
@@ -114,6 +114,9 @@ header = "------ EXALTED & LEGENDARY ------"
 # (uniques, sets and legendaries keep their own rules). corrupted = false leaves it out.
 corrupted = { name = "SHOW ALL CORRUPTED ITEMS", color = 11 }
 legendary = { name = "SHOW ALL LEGENDARY ITEMS", color = 7, emphasized = true }
+# Below it: every cocooned item - a box holding a random unique of its item type, so no unique group
+# lists them. cocooned = false leaves it out.
+cocooned = { name = "SHOW ALL COCOONED ITEMS", color = 1 }
 hide_rest = { name = "HIDE EVERYTHING ELSE" }
 
 # BiS section (above the exalted rules, so it decides first): the template's generic BiS
@@ -331,25 +334,18 @@ rules = [
 
 [[group]]
 name = "PRIMORDIAL"
-header = "--- PRIMORDIAL / COCOONED ---"
+header = "--- PRIMORDIAL ---"
 categories = ["primordial"]
 rules = [
   { lp_min = 1, color = 5, emphasized = true },
   { label = "0LP+", color = 5 },
 ]
 
-[[group]]
-name = "COCOONED"
-categories = ["cocooned"]
-rules = [
-  { label = "all", color = 1 },
-]
-
 # --- every unique idol the rules above let through (e.g. common 0LP ones) ----------
 
 [[group]]
 name = "UNIQUE IDOLS"
-categories = ["common", "uncommon", "rare", "very_rare", "extremely_rare", "special", "primordial", "cocooned", "weaver"]
+categories = ["common", "uncommon", "rare", "very_rare", "extremely_rare", "special", "primordial", "weaver"]
 base_types = ["IDOLS"]
 rules = [
   { label = "show all" },

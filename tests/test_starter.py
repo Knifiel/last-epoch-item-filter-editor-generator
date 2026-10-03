@@ -494,3 +494,73 @@ def test_old_per_class_hide_rules_dont_drag_the_unique_block_up_on_refresh():
     names = [r["name"] for r in refresh_generated(FULL_CONFIG, FULL, rules)["rules"]]
     assert names.index("[A] --- UNIQUES ---") > names.index("LEGENDARY")                 # stays below the exalted section
     assert names.index(HIDE) == names.index("SHATTER - ROGUE AFFIXES") + 1 and not [n for n in names if "Hide non-" in n]
+
+
+# --- v0.3.3: cocooned items below the legendary rule, a primordial section -------------------------
+from lefilter.rules import upgrade_config  # noqa: E402
+
+OLD_SEP, NEW_SEP = "[A] --- PRIMORDIAL / COCOONED ---", "[A] --- PRIMORDIAL ---"
+OLD_SLOT, NEW_SLOT = "[A] EDIT FOR YOUR BUILD - PRIMORDIAL / COCOONED", "[A] EDIT FOR YOUR BUILD - PRIMORDIAL"
+OLD_COC, NEW_COC = "[A] COCOONED - all", "SHOW ALL COCOONED ITEMS"
+PRIMORDIAL_DATA = {**FULL, "uniques": FULL["uniques"] + [{**unique(7, "First One"), "is_primordial": True},
+                                                         {**unique(8, "Cocooned Club"), "is_cocooned": True},
+                                                         {**unique(9, "Cocooned Axe"), "is_cocooned": True}]}
+OLD_GROUPS = [{"name": "PRIMORDIAL", "header": "--- PRIMORDIAL / COCOONED ---", "categories": ["primordial"], "rules": [{}]},
+              {"name": "COCOONED", "categories": ["cocooned"], "rules": [{"label": "all", "color": 1}]}]
+NEW_GROUPS = [{"name": "PRIMORDIAL", "header": "--- PRIMORDIAL ---", "categories": ["primordial"], "rules": [{}]}]
+
+
+def primordial_config(groups, cocooned=True) -> dict:
+    """FULL_CONFIG with these primordial groups; cocooned=False: no [starter] cocooned rule (as v0.3.2 had)."""
+    starter = {**FULL_CONFIG["starter"], **({} if cocooned else {"cocooned": False})}
+    return {**FULL_CONFIG, "starter": starter, "group": CONFIG["group"] + groups}
+
+
+def test_an_old_configs_cocooned_group_and_primordial_header_get_this_versions():
+    assert upgrade_config(primordial_config(OLD_GROUPS)) == primordial_config(NEW_GROUPS)
+    rules = make_template(primordial_config(NEW_GROUPS), PRIMORDIAL_DATA)["rules"]
+    names = [r["name"] for r in rules]
+    assert names[names.index("LEGENDARY") + 1] == NEW_COC and NEW_SEP in names and NEW_SLOT in names
+    cocooned = lambda r: {u["id"] for c in r["conditions"] if c["type"] == "UniqueModifiersCondition" for u in c["uniques"]} & {8, 9}
+    assert [r["name"] for r in rules if cocooned(r)] == [NEW_COC] and rules[names.index(NEW_COC)]["enabled"]
+
+
+@pytest.mark.parametrize("was_on", [True, False])
+def test_refresh_moves_the_old_cocooned_rule_below_legendary_and_keeps_a_filled_slot(was_on):
+    old = build_starter(primordial_config(OLD_GROUPS, cocooned=False), PRIMORDIAL_DATA,
+                        {"parts": ["legendary", "uniques", "hide_rest"]})["rules"]
+    by = {r["name"]: r for r in old}
+    assert NEW_COC not in by
+    by[OLD_SLOT]["conditions"][1]["uniques"] = [{"id": 7, "rolls": []}]   # filled in-game
+    by[OLD_SLOT]["enabled"] = True
+    by[OLD_COC]["enabled"] = was_on
+    rules = refresh_generated(primordial_config(NEW_GROUPS), PRIMORDIAL_DATA, old)["rules"]
+    names = [r["name"] for r in rules]
+    assert OLD_COC not in names and OLD_SLOT not in names and OLD_SEP not in names and NEW_SEP in names
+    assert names[names.index("LEGENDARY") + 1] == NEW_COC and rules[names.index(NEW_COC)]["enabled"] == was_on
+    assert rules[names.index(NEW_SLOT)]["conditions"][1]["uniques"] == [{"id": 7, "rolls": []}]
+    assert refresh_generated(primordial_config(NEW_GROUPS), PRIMORDIAL_DATA, rules)["rules"] == rules
+    kept = {r["name"] for r in refresh_generated(primordial_config(OLD_GROUPS, cocooned=False), PRIMORDIAL_DATA, old)["rules"]}
+    assert {OLD_COC, OLD_SLOT, OLD_SEP} <= kept and not {NEW_COC, NEW_SLOT, NEW_SEP} & kept   # a config keeping them keeps them
+
+
+def test_a_v032_template_update_moves_cocooned_and_keeps_a_filled_primordial_slot(tmp_path, monkeypatch):
+    from lefilter import starter
+    from lefilter.filterdoc import parse_filter
+    path = tmp_path / "templates" / "New filter.xml"
+    read = lambda: parse_filter(path.read_bytes().decode("utf-8-sig"))["rules"]
+    monkeypatch.setattr(starter, "__version__", "0.3.2")
+    starter.write_generated_template(path, make_template(primordial_config(OLD_GROUPS, cocooned=False), PRIMORDIAL_DATA))
+    doc = parse_filter(path.read_bytes().decode("utf-8-sig"))
+    by = {r["name"]: r for r in doc["rules"]}
+    by[OLD_SLOT]["conditions"][1]["uniques"] = [{"id": 7, "rolls": []}]
+    by[OLD_COC]["enabled"] = False                                          # the user's: off
+    starter.write_template(path, doc, "0.3.2")
+    monkeypatch.setattr(starter, "__version__", "0.3.3")
+    res = starter.sync_template(path, upgrade_config(primordial_config(OLD_GROUPS)), PRIMORDIAL_DATA)
+    rules = read()
+    names = [r["name"] for r in rules]
+    assert names == [r["name"] for r in make_template(primordial_config(NEW_GROUPS), PRIMORDIAL_DATA)["rules"]]
+    assert not rules[names.index(NEW_COC)]["enabled"]                       # still off
+    assert rules[names.index(NEW_SLOT)]["conditions"][1]["uniques"] == [{"id": 7, "rolls": []}]
+    assert res["added"] == [NEW_COC] and res["dropped"] == [OLD_COC]

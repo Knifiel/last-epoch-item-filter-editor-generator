@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from lefilter.rules import (UPDATED_AFFIX_RULES, UPDATED_CLASS_HIDE_NAME, UPDATED_EXALTED_RULES, UPDATED_GROUP_RULES, ConfigError, RuleSpec, categorize, plan_rules,
+from lefilter.rules import (UPDATED_AFFIX_RULES, UPDATED_CLASS_HIDE_NAME, UPDATED_EXALTED_RULES, UPDATED_GROUP_RULES, ConfigError, RuleSpec, build_slot_filters, categorize, plan_rules,
                             released_defaults, upgrade_config)
 
 THRESHOLDS = {"uncommon": 0.25, "rare": 0.5, "very_rare": 0.75, "extremely_rare": 0.95}
@@ -63,6 +63,31 @@ def test_only_matches_names_loosely_and_empty_only_is_skipped_silently():
     ), UNIQUES)
     assert [r.unique_ids for r in plan.rules] == [[5]]
     assert plan.warnings == []
+
+
+def test_build_slot_filters_name_the_weaver_and_primordial_slots():
+    uniques = [*UNIQUES, unique(6, "First One", random=False, primordial=True), unique(7, "Cocooned Club", cocooned=True)]
+    cfg = {**config(
+        {"name": "RANDOM", "header": "--- RANDOM DROPS ---", "categories": ["common"], "rules": [{}]},
+        {"name": "WEAVER", "header": "--- WEAVER'S WILL ---", "categories": ["weaver"], "rules": [{}]},
+        {"name": "PRIMORDIAL", "header": "--- PRIMORDIAL / COCOONED ---", "categories": ["primordial"], "rules": [{}]},
+        {"name": "COCOONED", "categories": ["cocooned"], "rules": [{}]},
+        {"name": "LET THROUGH", "categories": ["special"], "rules": [{}]},   # no header: joins the primordial section
+    ), "build_slots": {"add": True}}
+    assert build_slot_filters(cfg, uniques) == {"[A] EDIT FOR YOUR BUILD - WEAVER'S WILL": "weaver",
+                                                "[A] EDIT FOR YOUR BUILD - PRIMORDIAL / COCOONED": "primordial"}
+    assert build_slot_filters({}, uniques) == {}   # a broken config: no filters, no error
+
+
+def test_no_unique_group_of_the_default_config_lists_cocooned_items():
+    from lefilter.rules import TYPE_IDS, read_config
+    uniques = [{**unique(i, f"U{i}", **flags), "base_type": TYPE_IDS[t]} for i, (t, flags) in enumerate([
+        ("ONE_HANDED_MACES", {"cocooned": True}), ("IDOL_1x1_ETERRA", {"cocooned": True}),   # even a cocooned idol
+        ("RING", {}), ("IDOL_1x1_ETERRA", {}), ("RELIC", {"primordial": True})], 1)]
+    plan = plan_rules(read_config(Path(__file__).parent.parent / "config.toml"), uniques)
+    assert not [r.name for r in plan.rules if {1, 2} & set(r.unique_ids or [])]   # the [starter] cocooned rule shows them
+    names = [r.name for r in plan.rules]
+    assert "[A] --- PRIMORDIAL ---" in names and "[A] EDIT FOR YOUR BUILD - PRIMORDIAL" in names
 
 
 def test_unknown_unique_name_suggests_close_match():

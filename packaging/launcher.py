@@ -37,7 +37,10 @@ def _reopen_in_terminal() -> bool:
     """Linux, started without a terminal (e.g. from a file manager): run again inside one."""
     if os.environ.get("LEFE_IN_TERMINAL") or not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
         return False
-    env = {**os.environ, "LEFE_IN_TERMINAL": "1"}
+    # PYINSTALLER_RESET_ENVIRONMENT: the copy in the terminal unpacks itself again. By default it would
+    # reuse this process's unpacked files, which are deleted as soon as this process exits - it then
+    # failed to load libpython and the terminal closed at once (seen on the Steam Deck).
+    env = {**os.environ, "LEFE_IN_TERMINAL": "1", "PYINSTALLER_RESET_ENVIRONMENT": "1"}
     preferred = os.environ.get("TERMINAL")
     for name, flag in ([(preferred, "-e")] if preferred else []) + TERMINALS:
         exe = shutil.which(name)

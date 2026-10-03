@@ -3,6 +3,30 @@
 Edit Last Epoch loot filters outside the game, and generate rules for uniques, leveling, idols,
 BiS items, shattering and more - straight from your own game installation.
 
+### What's new in v0.3.3
+
+- **Steam Deck / Linux**: double-clicking `LEIFEG` in the file manager now works - the terminal
+  window it opens used to close right away (the copy started in it couldn't load its own files), so
+  it only ran when started from a terminal.
+- **Touch screens** (Steam Deck desktop mode): press and hold where a mouse would hover - a base,
+  an affix or its values, a unique, a toggle, a button - to see its tooltip or what it does. The
+  tooltip stays until the next touch; lifting the finger doesn't click.
+- **Remove an affix everywhere**: *Remove an affix…* (Rules tab, and now on the Leveling, Best in
+  slot and Idols tabs too) takes the affix out of the open filter's rules and the three tabs'
+  picks in one go - no more apply, back to Rules, remove. It lists every affix used anywhere with
+  where, lets you untick places to leave it in, and *Undo* in the dialog puts it all back. Its
+  filter box remembers what you typed (selected, so typing replaces it).
+- **Rules to fill in stand out**: the template's rules waiting for your build's picks (build
+  slots, *BIS - … (pick bases)*, the class hide rule) get a *to fill in* mark in the rule list,
+  a count with *Next* above it, and a note in the editor saying what each needs. Still optional.
+- **Weaver's Will and primordial uniques on their own**: the uniques picker gets *Show only Weaver's
+  Will uniques* and *Show only Primordial uniques* filters (they combine with the item type ones), and
+  the *EDIT FOR YOUR BUILD - WEAVER'S WILL* and *- PRIMORDIAL* slots open with theirs on.
+- **Cocooned items** (boxes holding a random unique) move to one rule, *SHOW ALL COCOONED ITEMS* (on),
+  right below *SHOW ALL LEGENDARY ITEMS*; no unique rule lists them any more. The section left behind is
+  *--- PRIMORDIAL ---* with its build slot *EDIT FOR YOUR BUILD - PRIMORDIAL*. Your template and
+  *↻ [A] rules* make the change: a filled slot keeps its uniques, and a cocooned rule you switched off stays off.
+
 ### What's new in v0.3.2
 
 - The always-show rule at the top now takes personal affixes only (*ALWAYS SHOW - PERSONAL

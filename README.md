@@ -135,6 +135,10 @@ Every generated section (except the top one) ends with an empty, disabled
 the section's rules, it only sees items those rules let fall through to the bottom
 hide rule - e.g. a common 0LP unique while the COMMON 0LP rules are disabled. Add
 the uniques/sets you want in-game (rolls can be filtered there too) and enable it.
+The primordial section's slot (`EDIT FOR YOUR BUILD - PRIMORDIAL`) is for the build's
+primordial uniques. Cocooned items - boxes holding a random unique of their item type - aren't
+in any unique group: `SHOW ALL COCOONED ITEMS`, right below the show-all-legendary rule, shows
+them all (`[starter] cocooned`).
 Generated rules start with `[A] `, so if you ever use a filled-in filter as `base`,
 rename the slot first or the next run replaces it.
 
@@ -194,6 +198,11 @@ in the browser - on WSL in the Windows default browser. It edits the filters in 
 Filters folder and in `out/`. The language menu switches item, unique and affix names to any
 of the game's languages (the editor's own labels stay English).
 
+On a touch screen (e.g. the Steam Deck's desktop mode, whose 1280×800 screen the editor fits)
+press and hold where a mouse would hover - a base, an affix or its values, a unique, a toggle, a
+button - for its tooltip or what it does. The tooltip stays until the next touch, and lifting the
+finger doesn't click.
+
 - **Rules**: the rule list in in-game order (top = first match wins) with on/off
   toggles, colour, show/hide and a short summary of every condition; drag rows (or use
   ▲▼) to reorder, add / duplicate / delete rules. The editor on the right covers name,
@@ -207,6 +216,8 @@ of the game's languages (the editor's own labels stay English).
   altars) shows its stats: level and class requirement, implicits with the range they roll
   in, a weapon's base attack rate, and an idol altar's idol grid with its refracted slots.
   The uniques condition's picker filters by item type (quick-filter buttons with counts) and
+  can show only Weaver's Will or only primordial uniques - the Weaver's Will and primordial
+  build slots open with that filter on - and
   shows each unique's tooltip on hover - base and its implicits, level, LP level, its
   modifiers with their ranges (set items marked), and lore. Each picked unique can require roll
   ranges, as in-game: type the values the tooltip shows; they're stored as the game stores
@@ -224,12 +235,22 @@ of the game's languages (the editor's own labels stay English).
   template; the rules already there stay as they are) or *replace all exalted rules* (the
   filter's section, with its own rules and changes, gives way to the template's). A filter
   without the section gets the whole of it, after the BiS section. Ctrl+Z undoes it.
-- **Remove an affix…** (Rules tab) takes one affix out of every rule's affix condition at
-  once: pick it from the affixes the filter's rules list (with how many rules list each), see
-  the rules it goes from, remove. A rule listing only that affix keeps it (an empty list
-  would take any affix); one asking for more affixes than it has left asks for what's left.
-  Ctrl+Z undoes it. The generator tabs put it back when applied again unless it's left out
-  there too.
+- **Remove an affix…** (Rules tab, and on each generator tab) takes one affix out of the open
+  filter's rules and the Leveling, Best in slot and Idols tabs' picks at once, so applying a tab
+  again doesn't bring it back: pick it from the affixes listed anywhere (with where each is
+  used), see every place it goes from - untick any to leave it there - and remove. A rule
+  listing only that affix keeps it (an empty list would take any affix); one asking for more
+  affixes than it has left asks for what's left. The Leveling tab leaves it out of the kinds of
+  gear that take it (tick it there to bring it back); a BiS slot with bases keeps its only
+  affix (without it the slot would show those bases whatever their affixes), as do the
+  preferred idol altars; an idol kind left with no affix gets no rules. *Undo* in the dialog
+  puts everything back; the filter box keeps what you typed last (selected, so typing
+  replaces it).
+- **To fill in** marks the template's rules that wait for your build's picks - the
+  `EDIT FOR YOUR BUILD` build slots, the `BIS - … (pick bases)` rules and the class hide rule
+  while all five classes are ticked - and any rule that can't match yet (an empty uniques list
+  or no item type). Filling them is optional: the filter works without them. The line above the
+  list counts them and *Next* jumps to the next one; the editor says what each waits for.
 - **Add missing sections…** (Rules tab) completes a filter that didn't start from *New* -
   e.g. the uniques-only one `build --standalone` writes, which the editor points out when
   you open it: the new-filter template's always-show affixes, generic BiS rules, exalted and
@@ -265,7 +286,8 @@ of the game's languages (the editor's own labels stay English).
   affix at tier 8, no item-type condition - then double T7, T7+T6, single T7 on uncorrupted
   items, and double T7 on corrupted ones), a **show-all-corrupted** rule (normal to exalted
   items that dropped corrupted, whatever their affixes: some builds want the corrupted
-  affixes themselves; `[starter] corrupted`) and a show-all-legendary rule; the unique/set rules; and a rule
+  affixes themselves; `[starter] corrupted`), a show-all-legendary rule and, below it, a
+  **show-all-cocooned** rule (cocooned items only hold a random unique; `[starter] cocooned`); the unique/set rules; and a rule
   hiding everything else at the bottom. That last one never hides shards, runes, glyphs or
   keys: the game only applies rules made of non-equipment conditions to those.
   In the dialog you pick the class (it sets the class hide rule to hide every other class

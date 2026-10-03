@@ -28,7 +28,7 @@ from .gamedata import (ARMOUR_TYPES, CLASS_FILTER_ICONS, CLASSES, JEWELRY_TYPES,
                        WEAPON_TYPES)
 from .leveling import (CLASS_CATEGORIES, SECTION_OF, build_affixes, gear_affixes, parse_options as parse_leveling,
                        plan_leveling, rolling_on)
-from .rules import (RULE_KEYS, ConfigError, Rule, RuleSpec, _check_keys, class_hide_name, plan_affix_rules, plan_class_hide,
+from .rules import (RULE_KEYS, ConfigError, Rule, RuleSpec, _check_keys, class_hide_name, plan_affix_rules, plan_class_hide, renamed_rules,
                     plan_rules, released_defaults, separator)
 from .sections import (IDOL_PLACEMENT, class_hide_index, doc_infos, insert_position, place, place_class_hide,
                        place_shatter)
@@ -39,15 +39,17 @@ PARTS = {
     "class_hide": "Class item hide rules (the chosen class's one enabled)",
     "bis": "BiS section: generic per-slot rules, switched off - the Best in slot tab fills them ([bis])",
     "exalted": "Generic exalted rules, T8 first ([[exalted_rule]]), and show all corrupted items ([starter] corrupted)",
-    "legendary": "Show all legendary items",
+    "legendary": "Show all legendary items, then all cocooned items ([starter] cocooned)",
     "uniques": "Unique & set rules (the [[group]]s)",
     "leveling": "Leveling section (the Leveling tab's settings)",
     "hide_rest": "Hide everything else at the bottom",
 }
 LOOK_KEYS = RULE_KEYS - {"label", "lp_min", "lp_max", "ww_min", "ww_max"}
 EXALTED_KEYS = LOOK_KEYS | {"name", "min", "tier", "total", "uncorrupted", "corrupted"}
-STARTER_KEYS = {"header", "legendary", "corrupted", "hide_rest"}
+STARTER_KEYS = {"header", "legendary", "corrupted", "cocooned", "hide_rest"}
 CORRUPTED_DEFAULT = {"name": "SHOW ALL CORRUPTED ITEMS", "color": 11}   # configs from before v0.3.0 have no [starter] corrupted
+COCOONED_DEFAULT = {"name": "SHOW ALL COCOONED ITEMS", "color": 1}      # configs from before v0.3.3 have no [starter] cocooned
+OLD_COCOONED = "COCOONED - all"   # before v0.3.3 an [A] rule among the uniques showed them (rule_prefix aside)
 GEAR_TYPES = WEAPON_TYPES + OFFHAND_TYPES + ARMOUR_TYPES + JEWELRY_TYPES
 GEAR_TYPE_IDS = {TYPE_IDS[t] for t in GEAR_TYPES}
 # "altar" is obsolete (idol altars moved to the idol section) but still accepted: the packaged app
@@ -154,6 +156,26 @@ def plan_shatter(config: dict, data: dict, character_class: str = "") -> list[Ru
     return rules
 
 
+def plan_cocooned(config: dict, data: dict) -> Rule | None:
+    """[starter] cocooned: one rule showing every cocooned item - a box holding a random unique of its
+    item type - below the legendary rule. None when switched off (cocooned = false) or the game has none."""
+    table = config.get("starter", {}).get("cocooned", COCOONED_DEFAULT)
+    if table is False:
+        return None
+    table = {"name": COCOONED_DEFAULT["name"], **table} if isinstance(table, dict) else COCOONED_DEFAULT
+    _check_keys(table, LOOK_KEYS | {"name"}, "[starter] cocooned")
+    ids = [u["id"] for u in sorted(data["uniques"], key=lambda u: (u["lpl"], u["name"]))
+           if u.get("is_cocooned") and not u.get("hidden")]
+    if not ids:
+        return None
+    options = dict(table)
+    return Rule(name=options.pop("name"), group="starter", spec=RuleSpec(**options), unique_ids=ids, rarity="UNIQUE")
+
+
+def legendary_name(config: dict) -> str:
+    return config.get("starter", {}).get("legendary", {}).get("name", "SHOW ALL LEGENDARY ITEMS")
+
+
 def _named_rule(table: dict, where: str, **conditions) -> Rule:
     _check_keys(table, LOOK_KEYS | {"name"}, where)
     options = dict(table)
@@ -193,9 +215,10 @@ def build_starter(config: dict, data: dict, options: dict) -> dict:
                                    corruption="OnlyCorrupted"))
     legendary = (_named_rule(scfg.get("legendary", {"name": "SHOW ALL LEGENDARY ITEMS"}), "[starter] legendary",
                              rarity="LEGENDARY") if "legendary" in parts else None)
-    if exalted or legendary:
+    cocooned = plan_cocooned(config, data) if "legendary" in parts else None
+    if exalted or legendary or cocooned:
         rules.append(separator(scfg.get("header", "------ EXALTED & LEGENDARY ------")))
-        rules += exalted + ([legendary] if legendary else [])
+        rules += exalted + [r for r in (legendary, cocooned) if r]
     if "uniques" in parts:
         plan = plan_rules(config, data["uniques"])
         rules += plan.rules
@@ -220,6 +243,16 @@ def build_starter(config: dict, data: dict, options: dict) -> dict:
     return {"header": header, "rules": doc_rules, "warnings": warnings}
 
 
+def apply_renames(config: dict, rules: list[dict], generated: set[str]) -> list[dict]:
+    """rules with the generated ones a version renamed (renamed_rules) under their new names - only where
+    this config generates the new name (generated) and not the old one, and the filter has no rule by the
+    new name yet: a config keeping the old names keeps them."""
+    names = {a: b for a, b in renamed_rules(config).items() if b in generated and a not in generated}
+    have = {r.get("name") for r in rules}
+    return [{**r, "name": names[r["name"]]} if "raw" not in r and r.get("name") in names and names[r["name"]] not in have else r
+            for r in rules]
+
+
 def refresh_generated(config: dict, data: dict, rules: list[dict]) -> dict:
     """Regenerate a filter's [A] rules (unique/set groups, [[affix_rule]]s, class hide rules) from
     config.toml and the current game data, the way `build` does with a base filter. Rules
@@ -228,6 +261,7 @@ def refresh_generated(config: dict, data: dict, rules: list[dict]) -> dict:
     if not prefix:
         raise ConfigError("[filter] rule_prefix is empty: generated rules can't be told apart")
     plan = plan_rules(config, data["uniques"])
+    rules = apply_renames(config, rules, {r.name for r in plan.rules})   # their state and filled slots carry over
     affix_rules, _, affix_warnings = plan_affix_rules(config, data["affixes"])
     generated = [render_rule(r) for r in plan.rules]
     top = [render_rule(r) for r in affix_rules]
@@ -279,6 +313,20 @@ def refresh_generated(config: dict, data: dict, rules: list[dict]) -> dict:
         elif r["enabled"] != prev["enabled"]:
             r["enabled"] = prev["enabled"]
             kept += 1
+    # The [A] rule that showed cocooned items before v0.3.3: the [starter] cocooned rule takes over, below the
+    # legendary rule (else right above the uniques), on or off as the old one was.
+    was = old.get(prefix + OLD_COCOONED)
+    coc = plan_cocooned(config, data) if was is not None and was["name"] not in {r.name for r in plan.rules} else None
+    if coc is not None:
+        names = [r.get("name") for r in new_rules]
+        if coc.name not in names:
+            plan_names = {r.name for r in plan.rules}
+            at = (names.index(legendary_name(config)) + 1 if legendary_name(config) in names
+                  else next((i for i, n in enumerate(names) if n in plan_names), len(names)))
+            new_rules.insert(at, parse_rule_blocks([render_rule(coc)])[0])
+            names.insert(at, coc.name)
+        new_rules[names.index(coc.name)]["enabled"] = was["enabled"]
+        kept += 1
     added = sum(1 for r in new_rules if r.get("name", "").startswith(prefix))
     return {"rules": new_rules, "removed": len(old), "added": added, "kept": kept,
             "warnings": plan.warnings + affix_warnings}
@@ -564,7 +612,11 @@ def sync_template(path: Path, config: dict, data: dict, backup_dir: Path | None 
         legacy = legacy_template_rules(config, data)   # as generated: only an identical copy counts as untouched
         base = ([r for r in make_template(released_defaults(config), data)["rules"] if r["name"] != class_hide_name(config)]
                 + [legacy[r["name"]] for r in mine["rules"] if r.get("name") in legacy])
-    rules, report = reconcile_template(base, mine["rules"], fresh["rules"])
+    # rules this version renamed, under their new names on both sides: an untouched one updates, a changed one
+    # (e.g. a filled build slot) stays the user's
+    fresh_names = {r.get("name") for r in fresh["rules"]}
+    base, mine_rules = apply_renames(config, base, fresh_names), apply_renames(config, mine["rules"], fresh_names)
+    rules, report = reconcile_template(base, mine_rules, fresh["rules"])
     spot = class_hide_spot(config, data)
     top, hide = set(spot["top_names"]), set(spot["hide_names"])
     if _version(stamp) < LAYOUT_VERSION:   # once: the shatter section moved to the top

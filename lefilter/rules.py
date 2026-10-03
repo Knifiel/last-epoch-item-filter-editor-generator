@@ -37,6 +37,17 @@ UPDATED_GROUP_RULES = {
                [{"ww_min": 19, "color": 7, "emphasized": True}, {"ww_min": 15, "ww_max": 18, "color": 2, "emphasized": True},
                 {"ww_max": 14, "color": 2}]),
 }
+_ALL_UNIQUES = ["common", "uncommon", "rare", "very_rare", "extremely_rare", "special", "primordial", "cocooned", "weaver"]
+# Other [[group]] settings, (group name, key) -> (earlier default, this version's).
+UPDATED_GROUP_SETTINGS = {
+    # v0.3.3: cocooned items (boxes holding a random unique) moved to the [starter] cocooned rule, below the
+    # legendary one: the section is the primordial uniques', and no unique group lists cocooned items
+    ("PRIMORDIAL", "header"): ("--- PRIMORDIAL / COCOONED ---", "--- PRIMORDIAL ---"),
+    ("UNIQUE IDOLS", "categories"): (_ALL_UNIQUES, [c for c in _ALL_UNIQUES if c != "cocooned"]),
+}
+# [[group]]s a version dropped, as earlier versions had them, each with the group it came after (where
+# released_defaults puts it back).
+DROPPED_GROUPS = [({"name": "COCOONED", "categories": ["cocooned"], "rules": [{"label": "all", "color": 1}]}, "PRIMORDIAL")]   # v0.3.3
 _EXALTED_V020 = [
     {"name": "ALL T8 ITEMS", "min": 1, "tier": 8, "color": 10, "emphasized": True, "beam_size": "LARGE", "beam_color": 13},
     {"name": "EXALTED - DOUBLE T7", "min": 2, "tier": 7, "uncorrupted": True, "color": 7, "emphasized": True},
@@ -62,6 +73,16 @@ def _swap_defaults(config: dict, to_new: bool) -> dict:
     for g in out.get("group", []):
         if g.get("name") in UPDATED_GROUP_RULES and "rules" in g:
             g["rules"] = swap(*UPDATED_GROUP_RULES[g["name"]], g["rules"])
+        for (name, key), defaults in UPDATED_GROUP_SETTINGS.items():
+            if g.get("name") == name and key in g:
+                g[key] = swap(*defaults, g[key])
+    if "group" in out:
+        for group, after in DROPPED_GROUPS:
+            if to_new:   # still as it was: gone (a changed one stays the user's)
+                out["group"] = [g for g in out["group"] if g != group]
+            elif not any(g.get("name") == group["name"] for g in out["group"]):
+                at = next((i + 1 for i, g in enumerate(out["group"]) if g.get("name") == after), len(out["group"]))
+                out["group"].insert(at, copy.deepcopy(group))
     if "exalted_rule" in out:
         out["exalted_rule"] = swap(*UPDATED_EXALTED_RULES, out["exalted_rule"])
     if "affix_rule" in out:
@@ -78,13 +99,24 @@ def upgrade_config(config: dict) -> dict:
 
 def released_defaults(config: dict) -> dict:
     """The config as earlier versions used it: UPDATED_* settings at either default get the old
-    one, no [starter] corrupted rule (they had none) and shatter rules for exalted items too.
+    one, DROPPED_GROUPS are back, no [starter] corrupted or cocooned rule (they had none) and shatter
+    rules for exalted items too.
     (Their per-class hide rules: see starter.legacy_template_rules.)"""
     out = _swap_defaults(config, False)
-    out["starter"] = {**out.get("starter", {}), "corrupted": False}
+    out["starter"] = {**out.get("starter", {}), "corrupted": False, "cocooned": False}   # their cocooned rule: an [A] group's
     out["class_hide"] = {"name": UPDATED_CLASS_HIDE_NAME[0], **out.get("class_hide", {})}
     out["shatter"] = {**out.get("shatter", {}), "rarity": ["MAGIC", "RARE", "EXALTED"]}   # exalted too, before v0.3.1
     return out
+
+
+def renamed_rules(config: dict) -> dict[str, str]:
+    """Generated rules a version renamed, old name -> new (rule_prefix included): filters and templates
+    from before keep such a rule's on/off state - and a filled build slot - under its new name."""
+    prefix = config.get("filter", {}).get("rule_prefix", "")
+    slot = config.get("build_slots", {}).get("name", "EDIT FOR YOUR BUILD - {section}")
+    names = {"--- PRIMORDIAL / COCOONED ---": "--- PRIMORDIAL ---",                             # v0.3.3
+             slot.format(section="PRIMORDIAL / COCOONED"): slot.format(section="PRIMORDIAL")}   # v0.3.3
+    return {prefix + a: prefix + b for a, b in names.items()}
 
 
 def read_config(path: Path) -> dict:
@@ -226,6 +258,7 @@ class Plan:
     members: dict[str, list[dict]]      # group name -> member uniques
     uncovered: list[dict]               # uniques no group selected
     warnings: list[str]
+    slot_categories: dict[str, set[str]] = field(default_factory=dict)   # build slot name -> its section's categories
 
 
 def _range_covers(lo, hi, olo, ohi) -> bool:
@@ -330,13 +363,14 @@ def plan_rules(config: dict, uniques: list[dict]) -> Plan:
     index = UniqueIndex(uniques)
     cat = {u["id"]: categorize(u, thresholds) for u in uniques}
 
-    rules, members, warnings, selected = [], {}, [], set()
+    rules, members, warnings, selected, slot_cats = [], {}, [], set(), {}
     section: _Section | None = None
     for g in groups:
         where = f"group '{g.name}'"
         if g.header:
             if section and section.slot is not None:
                 rules.append(_build_slot(section, prefix))
+                slot_cats[rules[-1].name] = {cat[u["id"]] for u in section.members}
             section = _Section(title=_section_title(g.header), slot=_slot_options(config, g), last_group=g.name)
             rules.append(separator(f"{prefix}{g.header}", g.name))
         types = {TYPE_IDS[t] for name in g.base_types for t in BASE_TYPE_ALIASES.get(name, (name,))}
@@ -375,9 +409,31 @@ def plan_rules(config: dict, uniques: list[dict]) -> Plan:
 
     if section and section.slot is not None:
         rules.append(_build_slot(section, prefix))
+        slot_cats[rules[-1].name] = {cat[u["id"]] for u in section.members}
 
     uncovered = [u for u in uniques if u["id"] not in selected and not u.get("hidden")]
-    return Plan(rules=rules, members=members, uncovered=uncovered, warnings=warnings)
+    return Plan(rules=rules, members=members, uncovered=uncovered, warnings=warnings, slot_categories=slot_cats)
+
+
+def build_slot_filters(config: dict, uniques: list[dict]) -> dict[str, str]:
+    """Build slot name -> the uniques filter the editor's picker starts with for it: "weaver" for the
+    slot of the section with the Weaver's Will uniques, "primordial" for the one with the primordial
+    uniques (its other groups - cocooned items, which only hold a random unique, and the unique idols
+    let through - aren't what a build picks there). Other slots: none."""
+    try:
+        plan = plan_rules(config, uniques)
+    except ConfigError:
+        return {}
+    out = {}
+    for name, cats in plan.slot_categories.items():
+        if "weaver" in cats:
+            out[name] = "weaver"
+        elif "primordial" in cats:
+            out[name] = "primordial"
+    for was, now in renamed_rules(config).items():   # a filter not refreshed since has the slot by its old name
+        if now in out:
+            out.setdefault(was, out[now])
+    return out
 
 
 def plan_affix_rules(config: dict, affixes: list[dict]) -> tuple[list[Rule], dict[str, list[dict]], list[str]]:

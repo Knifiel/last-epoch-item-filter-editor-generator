@@ -276,6 +276,23 @@ function newRule(name = "") {
 const isRaw = (r) => "raw" in r;
 const isSeparator = (r) => !isRaw(r) && r.conditions.length === 0;
 
+/** What a rule still waits for, when it's one of the template's rules to fill in for a build (build slots, the
+ *  BiS rules to pick bases for, the class hide rule) left as it came - or one that can't match yet. Optional:
+ *  the filter works without them, so the editor only points them out. */
+function todoNote(r) {
+  if (isRaw(r)) return null;
+  const conds = r.conditions.filter((c) => !c.raw);
+  const has = (type, test) => conds.some((c) => c.type === type && test(c));
+  const note = has("UniqueModifiersCondition", (c) => !c.uniques?.length) ? "pick the uniques or set items it shows"
+    : has("SubTypeCondition", (c) => !c.types?.length) ? "pick the item type and its bases"
+    : /\(pick (type & )?bases\)$/i.test(r.name || "") && has("SubTypeCondition", (c) => !c.subtypes?.length)
+      ? "pick its bases and the affixes it needs - or let the Best in slot tab make these rules"
+    : r.name === S.meta.class_hide_name && has("ClassCondition", (c) => c.classes?.length === S.meta.enums.classes.length)
+      ? "untick the class you play (it hides the ticked classes' class items)"
+    : null;
+  return note && (r.enabled ? note : `${note}, then switch it on`);
+}
+
 function activeAt(r, level) {
   if (isRaw(r)) return true;
   return r.conditions.every((c) => c.type !== "CharacterLevelCondition" || c.raw || (level >= c.min && level <= c.max));
@@ -646,6 +663,20 @@ const uniquesOnly = (doc) => /\[auto-uniques/.test(doc?.header?.description || "
 function renderDocNotice() {
   const box = $("#doc-notice");
   box.replaceChildren();
+  const todo = S.doc ? S.doc.rules.flatMap((r, i) => (todoNote(r) ? [i] : [])) : [];
+  if (todo.length) {
+    // the next one below the selected rule (from the top again after the last), among the rules the name filter shows
+    const q = S.search.toLowerCase();
+    const shown = todo.filter((i) => !q || (S.doc.rules[i].name || "").toLowerCase().includes(q));
+    const next = () => {
+      S.sel = shown.find((i) => i > S.sel) ?? shown[0];
+      renderList(); renderEditor(); scrollToSel();
+    };
+    put(box, h("div", { class: "todo-notice" },
+      h("span", { class: "badge todo" }, "to fill in"),
+      h("span", {}, `${todo.length} rule${todo.length > 1 ? "s" : ""} to fill in for your build - optional: the filter works without them.`),
+      h("button", { disabled: !shown.length, title: shown.length ? "Select the next rule to fill in" : "None of them matches the name filter", onclick: next }, "Next ▸")));
+  }
   if (!uniquesOnly(S.doc)) return;
   put(box, h("div", { class: "box notice" },
     h("div", {}, h("b", {}, "Unique and set rules only. "),
@@ -739,31 +770,132 @@ function affixUses(id) {
   return out;
 }
 
-/** Dialog: pick an affix the filter's rules list and take it out of all of them at once (undo with Ctrl+Z). */
+/** Where an affix is picked in the generator tabs: [{tab, short, label, edit: [places it goes from], kept: [places
+ *  keeping it], keptNote, note, remove(), changed()}]. remove() takes it out of the edit places; changed() redraws the tab. */
+function generatorAffixUses(id) {
+  const out = [];
+  const a = M.affix.get(id);
+  // Leveling: the kinds of gear whose rules take it (from a toggle or a class affix pick) - it's left out there
+  const res = S.lev.result, lo = levOpts();
+  if (res && a) {
+    const slots = levSlots(lo);
+    // its own exclude list as well as the last result's: right after a change the result is a moment behind
+    const gear = LEV_SECTIONS.filter(([s]) => slots[s].length && !(res.excluded?.[s] || []).includes(id) && !excludes(lo[sectionKey(s)], a)
+      && (Object.values(res.picked[s] || {}).some((ids) => ids.includes(id))
+        || (res.class_affixes.includes(id) && a.rolls_on.some((t) => sectionTypeIds(s).has(t)))));
+    if (gear.length) {
+      out.push({ tab: "leveling", short: "Leveling", label: "Leveling tab", edit: gear.map(([, l]) => l), kept: [],
+        note: "left out of those kinds of gear's rules (tick it there to bring it back)", changed: levChanged,
+        remove: () => { for (const [s] of gear) { const sec = lo[sectionKey(s)]; if (!excludes(sec, a)) sec.exclude.push(id); } } });
+    }
+  }
+  // Best in slot: the slots listing it. A slot's only affix stays when it has bases: without it the slot would
+  // show those bases whatever their affixes.
+  const slots = Object.entries(bisOpts().slots || {}).filter(([, s]) => s.affixes?.includes(id));
+  if (slots.length) {
+    const sole = ([, s]) => s.affixes.every((x) => x === id) && Object.keys(s.bases || {}).length > 0;
+    const label = ([k]) => bisSlotMeta(k)?.label || k;
+    const edit = slots.filter((x) => !sole(x));
+    out.push({ tab: "bis", short: "BiS", label: "Best in slot tab", edit: edit.map(label), kept: slots.filter(sole).map(label),
+      keptNote: "the only affix those slots list: kept (without it they'd show their bases whatever their affixes)", changed: bisChanged,
+      remove: () => { for (const [, s] of edit) s.affixes = s.affixes.filter((x) => x !== id); } });
+  }
+  // Idols: the idol kinds and the altar listing it (an idol kind left with no affix gets no rules)
+  const io = idolOpts();
+  const kinds = Object.entries(io.picks || {}).filter(([, p]) => p.affixes?.includes(id));
+  const inAltar = !!io.altar?.affixes?.includes(id);
+  if (kinds.length || inAltar) {
+    const altarSole = inAltar && io.altar.affixes.length === 1 && io.altar.bases.length > 0;
+    out.push({ tab: "idols", short: "Idols", label: "Idols tab",
+      edit: [...kinds.map(([k, p]) => (idolKind(k)?.label || k) + (p.affixes.length === 1 ? " (its only affix: no rules for it then)" : "")),
+        ...(inAltar && !altarSole ? ["Idol altar"] : [])],
+      kept: altarSole ? ["Idol altar"] : [], changed: idolChanged,
+      keptNote: "the only affix the preferred altars list: kept (without it they'd be its bases whatever their affixes)",
+      remove: () => {
+        for (const [k, p] of kinds) { p.affixes = p.affixes.filter((x) => x !== id); if (!p.affixes.length) delete io.picks[k]; }
+        if (inAltar && !altarSole) io.altar.affixes = io.altar.affixes.filter((x) => x !== id);
+      } });
+  }
+  return out;
+}
+
+/** Every affix the generator tabs pick (to list in the Remove an affix dialog). */
+function generatorAffixIds() {
+  const ids = new Set();
+  const res = S.lev.result;
+  if (res) {
+    for (const toggles of Object.values(res.picked || {})) for (const list of Object.values(toggles)) list.forEach((x) => ids.add(x));
+    res.class_affixes.forEach((x) => ids.add(x));
+  }
+  for (const s of Object.values(bisOpts().slots || {})) (s.affixes || []).forEach((x) => ids.add(x));
+  const io = idolOpts();
+  for (const p of Object.values(io.picks || {})) (p.affixes || []).forEach((x) => ids.add(x));
+  (io.altar?.affixes || []).forEach((x) => ids.add(x));
+  return ids;
+}
+
+const REMOVE_AFFIX_TITLE = "Take one affix out of the open filter's rules and the Leveling, Best in slot and Idols tabs' picks at once";
+let removeAffixQuery = "";    // the dialog's filter text, kept for its next opening
+let lastRemoval = null;       // {text, undo()}: what the dialog removed last, undoable while it stays open
+
+/** The Remove an affix dialog, fresh (no earlier removal to undo). */
+function openRemoveAffix() {
+  lastRemoval = null;
+  removeAffixEverywhere();
+}
+
+/** Dialog: pick an affix and take it out of the open filter's rules and the generator tabs' picks at once. */
 function removeAffixEverywhere(selected = null) {
-  if (!S.doc) return;
   const dlg = $("#dlg");
   const counts = new Map();
-  for (const r of S.doc.rules) {
+  for (const r of S.doc?.rules || []) {
     if (r.raw) continue;
     const ids = new Set(r.conditions.filter((c) => c.type === "AffixCondition" && !c.raw).flatMap((c) => c.affixes));
     for (const id of ids) counts.set(id, (counts.get(id) || 0) + 1);
   }
   const ruleLabel = (r) => r.name || `rule ${S.doc.rules.indexOf(r) + 1}`;
   const close = h("div", { class: "row" }, h("button", { class: "primary", onclick: () => dlg.close() }, "Close"));
-  const intro = h("p", { class: "hint" }, "Takes an affix out of every rule's affix condition. Undo with Ctrl+Z. The Leveling, Best in slot "
-    + "and Idols tabs put it back when applied again: leave it out there too (Leveling: untick it; Best in slot / Idols: un-pick it).");
-  if (selected !== null && counts.has(selected)) {
-    const uses = affixUses(selected);
+  const title = h("h3", {}, "Remove an affix");
+  const intro = h("p", { class: "hint" }, "Takes an affix out of the open filter's rules and out of the Leveling, Best in slot and Idols tabs' "
+    + "picks at once, so applying a tab again doesn't bring it back. Pick an affix to see everywhere it's used; untick any place to leave it there.");
+  const genUses = selected !== null ? generatorAffixUses(selected) : [];
+  if (selected !== null && (counts.has(selected) || genUses.length)) {
+    const uses = S.doc ? affixUses(selected) : [];
     const editable = uses.filter((u) => u.edit.length);
     const lowers = (c) => c.min_on_same_item > c.affixes.filter((x) => x !== selected).length;
-    fill(dlg, h("h3", {}, "Remove an affix from every rule"), intro,
-      h("div", { class: "row" }, h("b", {}, affixName(selected)), affixPill(selected), h("span", { class: "spacer" }),
-        h("button", { onclick: () => removeAffixEverywhere() }, "← Other affix")),
-      h("ul", { class: "gen-rules" }, uses.map((u) => h("li", {}, ruleLabel(u.rule),
-        u.kept.length ? h("span", { class: "hint" }, " - the only affix it lists: kept (without it the rule would take any affix)") : null,
-        u.edit.some(lowers) ? h("span", { class: "hint" }, " - asks for more affixes than it would have left: lowered to what's left") : null))),
-      h("div", { class: "row" }, h("button", { class: "danger", disabled: !editable.length, onclick: () => {
+    // the places, each with a tick: [{key, n (what it can go from), box}]
+    const places = [];
+    const btn = h("button", { class: "danger" });
+    const refresh = () => {
+      const on = places.filter((p) => p.box.checked && p.n);
+      btn.disabled = !on.length;
+      btn.textContent = on.length ? `Remove from ${on.map((p) => p.what).join(", ")}` : "Nothing ticked it can be removed from";
+    };
+    const place = (key, what, n, head, body) => {
+      const box = h("input", { type: "checkbox", checked: n > 0, disabled: !n, onchange: refresh });
+      places.push({ key, what, n, box });
+      return h("div", { class: "remove-place" }, h("label", {}, box, h("b", {}, head)), body);
+    };
+    const parts = [];
+    if (uses.length) {
+      parts.push(place("rules", `${editable.length} rule${editable.length === 1 ? "" : "s"}`, editable.length, `Rules of the open filter (${uses.length})`,
+        h("ul", { class: "gen-rules" }, uses.map((u) => h("li", {}, ruleLabel(u.rule),
+          u.kept.length ? h("span", { class: "hint" }, " - the only affix it lists: kept (without it the rule would take any affix)") : null,
+          u.edit.some(lowers) ? h("span", { class: "hint" }, " - asks for more affixes than it would have left: lowered to what's left") : null)))));
+    }
+    for (const g of genUses) {
+      parts.push(place(g.tab, g.short, g.edit.length, g.label,
+        h("div", { class: "remove-where" }, g.edit.length ? h("div", {}, g.edit.join(", "), g.note ? h("span", { class: "hint" }, ` - ${g.note}`) : null) : null,
+          g.kept.length ? h("div", { class: "hint" }, `${g.kept.join(", ")}: ${g.keptNote}`) : null)));
+    }
+    // the Leveling tab's picks come from its last result: worked out again before the list is drawn
+    const levelingNow = async (gens) => { if (gens.some((g) => g.tab === "leveling")) await runLeveling(); };
+    btn.onclick = async () => {
+      const on = new Set(places.filter((p) => p.box.checked && p.n).map((p) => p.key));
+      const snap = { leveling: structuredClone(S.lev.opts), bis: structuredClone(S.bis.opts), idols: structuredClone(S.idol.opts) };
+      const done = [];
+      let ruleMark = null;
+      if (on.has("rules")) {
         let n = 0;
         mutate(() => {
           for (const u of affixUses(selected)) {
@@ -775,28 +907,62 @@ function removeAffixEverywhere(selected = null) {
             }
           }
         }, { editor: true });
-        toast(`${affixName(selected)} removed from ${n} rule${n === 1 ? "" : "s"}. Undo with Ctrl+Z; save to keep it.`);
-        removeAffixEverywhere();
-      } }, editable.length ? `Remove from ${editable.length} rule${editable.length > 1 ? "s" : ""}` : "No rule it can be removed from")),
-      close);
+        ruleMark = S.undo.length;
+        done.push(`${n} rule${n === 1 ? "" : "s"}`);
+      }
+      const gens = genUses.filter((g) => on.has(g.tab));
+      for (const g of gens) { g.remove(); g.changed(); done.push(`${g.label} (${g.edit.length})`); }
+      const name = affixName(selected);
+      lastRemoval = {
+        text: `${name} removed from ${done.join(", ")}.` + (on.has("rules") ? " Save to keep the rules' change." : ""),
+        undo: async () => {
+          if (ruleMark != null && S.undo.length === ruleMark) undo();   // unless the rules changed again since
+          for (const g of gens) {
+            if (g.tab === "leveling") S.lev.opts = snap.leveling; else if (g.tab === "bis") S.bis.opts = snap.bis; else S.idol.opts = snap.idols;
+            g.changed();
+          }
+          lastRemoval = null;
+          await levelingNow(gens);
+          toast(`${name} is back where it was.`);
+          removeAffixEverywhere();
+        },
+      };
+      await levelingNow(gens);
+      removeAffixEverywhere();   // its list says what was removed, with Undo
+    };
+    refresh();
+    fill(dlg, title, intro,
+      h("div", { class: "row" }, h("b", {}, affixName(selected)), affixPill(selected), h("span", { class: "spacer" }),
+        h("button", { onclick: () => removeAffixEverywhere() }, "← Other affix")),
+      parts, h("div", { class: "row" }, btn), close);
   } else {
-    const search = h("input", { type: "search", placeholder: "Filter affixes…", style: { width: "100%" } });
+    const search = h("input", { type: "search", placeholder: "Filter affixes…", style: { width: "100%" }, value: removeAffixQuery });
     const list = h("div", { class: "remove-affix-list" });
-    const items = [...counts].sort(([a], [b]) => compareAffixes(a, b))
-      .map(([id, n]) => ({ id, n, name: affixName(id), group: affixGroup(M.affix.get(id)) }));
+    const gen = generatorAffixIds();
+    const items = [...new Set([...counts.keys(), ...gen])]
+      .map((id) => ({ id, n: counts.get(id) || 0, uses: gen.has(id) ? generatorAffixUses(id) : [] }))
+      .filter((x) => x.n || x.uses.length)
+      .sort((a, b) => compareAffixes(a.id, b.id))
+      .map((x) => ({ ...x, name: affixName(x.id), group: affixGroup(M.affix.get(x.id)) }));
     const draw = () => {
       const q = search.value.trim().toLowerCase();
+      removeAffixQuery = search.value;
       let group = null;
       fill(list, ...items.filter((x) => !q || x.name.toLowerCase().includes(q)).flatMap((x) => [
         x.group !== group ? h("div", { class: "grp" }, (group = x.group)) : null,
         h("button", { class: "affix-row", onclick: () => removeAffixEverywhere(x.id) }, x.name, affixPill(x.id),
-          h("span", { class: "hint" }, ` ${x.n} rule${x.n > 1 ? "s" : ""}`))]));
-      if (!list.children.length) list.append(h("p", { class: "hint" }, items.length ? "No affix matches." : "No rule lists any affix."));
+          h("span", { class: "hint" }, " " + [x.n ? `${x.n} rule${x.n > 1 ? "s" : ""}` : null,
+            ...x.uses.map((u) => `${u.short} ${u.edit.length + u.kept.length}`)].filter(Boolean).join(" · ")))]));
+      if (!list.children.length) list.append(h("p", { class: "hint" }, items.length ? "No affix matches." : "No rule or generator tab picks any affix."));
     };
     search.oninput = draw;
     draw();
-    fill(dlg, h("h3", {}, "Remove an affix from every rule"), intro, search, list, close);
-    setTimeout(() => search.focus(), 0);
+    fill(dlg, title, intro,
+      lastRemoval ? h("div", { class: "box notice row" }, h("span", {}, lastRemoval.text), h("span", { class: "spacer" }),
+        h("button", { onclick: lastRemoval.undo }, "Undo")) : null,
+      search, list, close);
+    // the last filter text comes back, selected: typing replaces it
+    setTimeout(() => { search.focus(); search.select(); }, 0);
   }
   if (!dlg.open) dlg.showModal();
 }
@@ -942,6 +1108,8 @@ function renderList() {
     if (!raw && !r.enabled) cls.push("disabled");
     if (isSeparator(r)) cls.push("separator");
     if (S.lvl.on && !raw && r.enabled && !activeAt(r, S.lvl.level)) cls.push("inactive");
+    const todo = todoNote(r);
+    if (todo) cls.push("todo");
     const badge = raw ? h("span", { class: "badge" }, "RAW")
       : isSeparator(r) ? null : h("span", { class: "badge " + (r.type === "HIDE" ? "hide" : "show") }, r.type);
     const li = h("li", {
@@ -971,7 +1139,8 @@ function renderList() {
       onchange: (e) => mutate(() => { r.enabled = e.target.checked; }) }),
     ruleSwatch(r),
     h("div", { class: "rule-main" },
-      h("div", { class: "rule-name", title: r.name }, badge, r.name || (raw ? "(unrecognised rule, kept as is)" : "(unnamed)")),
+      h("div", { class: "rule-name", title: r.name }, todo ? h("span", { class: "badge todo", title: `Optional, for your build: ${todo}` }, "to fill in") : null,
+        badge, r.name || (raw ? "(unrecognised rule, kept as is)" : "(unnamed)")),
       raw || isSeparator(r) ? null : h("div", { class: "rule-chips" }, r.conditions.map((c) => h("span", { class: "chip-s" }, condSummary(c))))));
     put(ol, li);
   });
@@ -1054,7 +1223,9 @@ function renderEditor() {
       h("div", { class: "seg" },
         ["SHOW", "HIDE"].map((t) => h("button", { class: r.type === t ? "on" : "", onclick: () => mutate(() => { r.type = t; }, { editor: true }) }, cap(t)))),
       h("label", {}, h("input", { type: "checkbox", checked: r.enabled, onchange: (e) => mutate(() => { r.enabled = e.target.checked; }) }), "Enabled"),
-      isSeparator(r) ? h("span", { class: "hint" }, "No conditions: matches every item (a disabled one is just a section header).") : null));
+      isSeparator(r) ? h("span", { class: "hint" }, "No conditions: matches every item (a disabled one is just a section header).") : null),
+    todoNote(r) ? h("div", { class: "todo-note" }, h("span", { class: "badge todo" }, "to fill in"),
+      h("span", {}, `Optional, for your build: ${todoNote(r)}.`)) : null);
 
   // appearance
   put(ed, h("h3", {}, "Appearance"));
@@ -1136,7 +1307,7 @@ function conditionBody(rule, c) {
         }, re)))), h("p", { class: "hint" }, "Matches class-specific items of the selected classes; none selected = any item."),
         !c.classes.length && rule.type === "HIDE" && rule.enabled
           ? h("p", { class: "warn" }, "⚠ With no class selected this hide rule hides every item its other conditions match.") : null);
-    case "UniqueModifiersCondition": return uniquesEditor(c);
+    case "UniqueModifiersCondition": return uniquesEditor(c, rule);
     case "CorruptionCondition":
       return h("select", { onchange: (e) => mutate(() => { c.corruption = e.target.value; }, re) },
         S.meta.enums.corruption.map((v) => h("option", { value: v, selected: v === c.corruption }, v.replace(/([a-z])([A-Z])/g, "$1 $2"))));
@@ -1344,13 +1515,18 @@ function affixValueSummary(affix, tiers, scale) {
 
 let tipEl = null;
 function hideTip() { if (tipEl) tipEl.style.display = "none"; }
-function showTip(e, content) {
+/** Shows content at e's position: beside the mouse, or (touch) above the finger, where the hand doesn't cover it. */
+function showTip(e, content, touch = false) {
   if (!tipEl) { tipEl = h("div", { class: "tip" }); document.body.append(tipEl); }
   fill(tipEl, content);
   tipEl.style.display = "block";
   const pad = 14, r = tipEl.getBoundingClientRect();
   let x = e.clientX + pad, y = e.clientY + pad;
-  if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+  if (touch) {
+    x = Math.min(e.clientX - r.width / 2, innerWidth - r.width - 8);
+    y = e.clientY - r.height - 3 * pad;
+    if (y < 8) y = e.clientY + 3 * pad;   // no room above: below the finger
+  } else if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
   if (y + r.height > innerHeight - 8) y = innerHeight - r.height - 8;
   // Positions are in screen pixels; the page may be zoomed (large screens, see app.css).
   const z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
@@ -1383,22 +1559,78 @@ function baseTip(type, s) {
         `${s.grid.flat().filter(Boolean).length} slots, ${s.grid.flat().filter((v) => v === 2).length} refracted`))] : null,
     s.drops ? null : h("div", { class: "bad" }, "Cannot drop"));
 }
-/** Shows an affix's tier table while the pointer is over el - its values per tier, on the item type
- *  when typeIds names exactly one (hidden on click: el is usually re-rendered). */
-function withAffixTip(el, a, typeIds = null) {
-  if (!a?.lines?.length) return el;
-  el.addEventListener("mousemove", (e) => showTip(e, affixTierTable(a, null, affixScale(a, typeIds), typeIds)));
-  el.addEventListener("mouseleave", hideTip);
+const TIPS = new WeakMap();   // element -> () => its tooltip's content (withTip)
+
+/** The innermost element from node up that has a tooltip: a withTip one or, with titles, one with a title. */
+function tipOwner(node, titles = false) {
+  for (let el = node; el; el = el.parentElement) {
+    if (TIPS.has(el) || (titles && el.getAttribute?.("title"))) return el;
+  }
+  return null;
+}
+
+/** Shows content() as a tooltip while the mouse is over el (hidden on click: el is usually re-rendered).
+ *  Touch screens have no hover: there, pressing and holding el shows it (wireTouchTips). */
+function withTip(el, content) {
+  TIPS.set(el, content);
+  el.addEventListener("pointermove", (e) => { if (e.pointerType !== "touch" && tipOwner(e.target) === el) showTip(e, content()); });
+  el.addEventListener("pointerleave", (e) => { if (e.pointerType !== "touch") hideTip(); });
   el.addEventListener("click", hideTip);
   return el;
 }
 
-/** Shows baseTip while the pointer is over el (and hides it on click: el is usually re-rendered). */
+/** Touch screens: pressing and holding an element shows its tooltip - its withTip one, else its title
+ *  (what a button does) - until the next touch. Lifting that finger doesn't click; scrolling cancels. */
+function wireTouchTips() {
+  const HOLD_MS = 450, SLOP = 10;
+  let timer = null, at = null, held = false, swallowUntil = 0;
+  const cancel = () => { clearTimeout(timer); timer = null; };
+  const swallowing = () => held || performance.now() < swallowUntil;
+  const release = () => { cancel(); if (held) { held = false; swallowUntil = performance.now() + 700; } };
+  document.addEventListener("pointerdown", (e) => {
+    swallowUntil = 0;   // a new press (touch or mouse) does what it does
+    if (e.pointerType !== "touch") return;
+    hideTip(); cancel(); held = false;   // and a touch closes the shown tip
+    // Text fields keep their own long press (select, paste).
+    const owner = e.isPrimary && !e.target.closest("input:not([type=checkbox], [type=radio]), textarea") && tipOwner(e.target, true);
+    if (!owner) return;
+    if (!store.get("touch-tip-hint", false)) {
+      store.set("touch-tip-hint", true);
+      toast("On a touch screen, press and hold for an item's or affix's details and what a button does (what hovering shows with a mouse).");
+    }
+    at = { clientX: e.clientX, clientY: e.clientY };
+    timer = setTimeout(() => {
+      timer = null; held = true;
+      getSelection()?.removeAllRanges();
+      // An element with both (e.g. a base chip marked "not a Sentinel base") shows its title under the tooltip,
+      // as a mouse would get both.
+      const tip = TIPS.get(owner), title = owner.getAttribute("title");
+      showTip(at, tip ? [tip(), title ? h("div", { class: "tip-text tip-note" }, title) : null] : h("div", { class: "tip-text" }, title), true);
+    }, HOLD_MS);
+  }, true);
+  document.addEventListener("pointermove", (e) => {
+    if (timer && e.pointerType === "touch" && Math.hypot(e.clientX - at.clientX, e.clientY - at.clientY) > SLOP) cancel();
+  }, true);
+  for (const type of ["pointerup", "pointercancel"]) {
+    document.addEventListener(type, (e) => { if (e.pointerType === "touch") release(); }, true);
+  }
+  // The hold's own click, and the browser's long-press menu and text selection.
+  document.addEventListener("click", (e) => { if (swallowing()) { e.preventDefault(); e.stopPropagation(); } }, true);
+  for (const type of ["contextmenu", "selectstart"]) {
+    document.addEventListener(type, (e) => { if (timer || swallowing()) { e.preventDefault(); e.stopPropagation(); } }, true);
+  }
+  document.addEventListener("scroll", () => { if (!timer && !held) hideTip(); }, true);
+}
+
+/** Shows an affix's tier table as el's tooltip - its values per tier, on the item type when typeIds names exactly one. */
+function withAffixTip(el, a, typeIds = null) {
+  if (!a?.lines?.length) return el;
+  return withTip(el, () => affixTierTable(a, null, affixScale(a, typeIds), typeIds));
+}
+
+/** Shows baseTip as el's tooltip. */
 function withBaseTip(el, type, s) {
-  el.addEventListener("mousemove", (e) => showTip(e, baseTip(type, s)));
-  el.addEventListener("mouseleave", hideTip);
-  el.addEventListener("click", hideTip);
-  return el;
+  return withTip(el, () => baseTip(type, s));
 }
 
 /** Per-tier table: one row per tier, one column per stat line; the selected tiers highlighted. */
@@ -1420,12 +1652,11 @@ function affixTierTable(affix, tiers, scale, typeIds, omen = false) {
     h("div", { class: "hint" }, note));
 }
 
-/** The value column: summary text, per-tier table on hover. */
+/** The value column: summary text, per-tier table as its tooltip. */
 function affixValueCell(affix, { tiers = null, typeIds = null, omen = false } = {}) {
   if (!affix?.lines?.length) return h("span", { class: "aval" });
   const scale = affixScale(affix, typeIds, omen);
-  return h("span", { class: "aval", onmousemove: (e) => showTip(e, affixTierTable(affix, tiers, scale, typeIds, omen)),
-    onmouseleave: hideTip }, affixValueSummary(affix, tiers, scale));
+  return withTip(h("span", { class: "aval" }, affixValueSummary(affix, tiers, scale)), () => affixTierTable(affix, tiers, scale, typeIds, omen));
 }
 
 /** Searchable add-list. items: [{id, label, meta, group, alt?, cell?}], selected: Set of ids, onAdd(ids). */
@@ -1441,9 +1672,9 @@ function searchPicker(items, isSelected, onAdd, placeholder, { query = "", onQue
     let group = null;
     for (const it of shown.slice(0, 400)) {
       if (it.group !== group) { group = it.group; if (group) put(results, h("div", { class: "grp" }, group)); }
-      put(results, h("div", { class: "opt" + (it.cell ? " with-value" : ""), onclick: () => { hideTip(); onAdd([it.id]); },
-        onmousemove: it.tip ? (e) => showTip(e, it.tip()) : null, onmouseleave: it.tip ? hideTip : null },
-        h("span", {}, it.label, it.pill ? it.pill() : null), h("span", { class: "meta" }, it.meta || ""), it.cell ? it.cell() : null));
+      const opt = h("div", { class: "opt" + (it.cell ? " with-value" : ""), onclick: () => { hideTip(); onAdd([it.id]); } },
+        h("span", {}, it.label, it.pill ? it.pill() : null), h("span", { class: "meta" }, it.meta || ""), it.cell ? it.cell() : null);
+      put(results, it.tip ? withTip(opt, it.tip) : opt);
     }
     if (shown.length > 400) put(results, h("div", { class: "opt hint" }, `…${shown.length - 400} more, refine the search`));
     if (!shown.length) put(results, h("div", { class: "opt hint" }, "nothing to add"));
@@ -1494,8 +1725,9 @@ function affixEditor(rule, c) {
   return h("div", {},
     h("div", { class: "selected-list" }, c.affixes.length ? groupedChips(c.affixes, (id) => {
       const a = M.affix.get(id);
-      return h("span", { class: "chip on", onmousemove: a?.lines?.length ? (e) => showTip(e, affixTierTable(a, tiersOf(a), affixScale(a, typeIds, omenOf(a)), typeIds, omenOf(a))) : null,
-        onmouseleave: hideTip }, affixName(id), affixPill(id), h("button", { title: "remove", onclick: () => { hideTip(); mutate(() => { c.affixes = c.affixes.filter((x) => x !== id); }, re); } }, "×"));
+      const chip = h("span", { class: "chip on" }, affixName(id), affixPill(id),
+        h("button", { title: "remove", onclick: () => { hideTip(); mutate(() => { c.affixes = c.affixes.filter((x) => x !== id); }, re); } }, "×"));
+      return a?.lines?.length ? withTip(chip, () => affixTierTable(a, tiersOf(a), affixScale(a, typeIds, omenOf(a)), typeIds, omenOf(a))) : chip;
     })
       : h("span", { class: "hint" }, "No affixes listed: any affix counts.")),
     c.affixes.length ? h("div", { class: "row" }, h("button", { onclick: () => mutate(() => { c.affixes = []; }, re) }, "Remove all")) : null,
@@ -1590,15 +1822,14 @@ function uniqueTip(u) {
     u.lore ? h("div", { class: "lore" }, u.lore) : null);
 }
 function withUniqueTip(el, u) {
-  if (!u) return el;
-  el.addEventListener("mousemove", (e) => showTip(e, uniqueTip(u)));
-  el.addEventListener("mouseleave", hideTip);
-  el.addEventListener("click", hideTip);
-  return el;
+  return u ? withTip(el, () => uniqueTip(u)) : el;
 }
 
-/** Per-condition picker state: item types to list (none = all) and the search text. */
+/** Per-condition picker state: item types to list (none = all), the "show only" filter and the search text. */
 const UNIQUE_PICKER = new WeakMap();
+/** The uniques picker's "show only" filters: [key, label, test]. A build slot's picker starts with its
+ *  section's one switched on (meta.build_slot_filters: the Weaver's Will and primordial slots). */
+const UNIQUE_KINDS = [["weaver", "Weaver's Will", (u) => u.weavers_will], ["primordial", "Primordial", (u) => u.is_primordial]];
 
 /** A picked unique with its required roll ranges: one per roll, as in-game - the rolls the game's
  *  picker offers, hidden effect rolls included; each mod on a roll converts in its own units. */
@@ -1655,32 +1886,40 @@ function pickedUnique(c, u, re) {
       : h("p", { class: "hint" }, "Nothing on it rolls."));
 }
 
-function uniquesEditor(c) {
+function uniquesEditor(c, rule) {
   const re = { editor: true };
-  const state = UNIQUE_PICKER.get(c) || { types: new Set(), q: "" };
+  const state = UNIQUE_PICKER.get(c) || { types: new Set(), q: "", kind: S.meta.build_slot_filters?.[rule?.name] || null };
   UNIQUE_PICKER.set(c, state);
   const sel = new Set(c.uniques.map((u) => u.id));
-  const items = S.meta.uniques.filter((u) => !u.hidden)   // as in-game: no uniques hidden from players
-    .map((u) => ({ id: u.id, label: u.name, alt: u.en_name, group: u.base_type_name || "", type: u.base_type,
-      meta: `${u.is_set ? "set · " : ""}${u.weavers_will ? "WW · " : ""}LPL ${u.lpl}`, tip: () => uniqueTip(u) }))
+  const listed = S.meta.uniques.filter((u) => !u.hidden);   // as in-game: no uniques hidden from players
+  const ofKind = (u) => !state.kind || UNIQUE_KINDS.find(([k]) => k === state.kind)?.[2](u);
+  const items = listed
+    .map((u) => ({ id: u.id, u, label: u.name, alt: u.en_name, group: u.base_type_name || "", type: u.base_type,
+      meta: `${u.is_set ? "set · " : ""}${u.weavers_will ? "WW · " : ""}${u.is_primordial ? "primordial · " : ""}`
+        + `${u.is_cocooned ? "cocooned · " : ""}LPL ${u.lpl}`, tip: () => uniqueTip(u) }))
     .sort((a, b) => a.group.localeCompare(b.group) || a.label.localeCompare(b.label));
-  const counts = new Map();
-  for (const u of S.meta.uniques) if (!u.hidden) counts.set(u.base_type, (counts.get(u.base_type) || 0) + 1);
   const chipsBox = h("div", { class: "uniq-types" }), pickerBox = h("div", {});
-  const drawPicker = () => fill(pickerBox, searchPicker(items.filter((it) => !state.types.size || state.types.has(it.type)),
+  const drawPicker = () => fill(pickerBox, searchPicker(items.filter((it) => ofKind(it.u) && (!state.types.size || state.types.has(it.type))),
     (id) => sel.has(id), (ids) => mutate(() => {
       c.uniques = [...c.uniques, ...ids.filter((i) => !sel.has(i)).map((id) => ({ id, rolls: [] }))];
     }, re), "Search uniques / sets to add…", { query: state.q, onQuery: (q) => { state.q = q; } }));
   const drawChips = () => {
     chipsBox.replaceChildren();
+    const counts = new Map();   // per item type, of the uniques the "show only" filter leaves
+    for (const u of listed) if (ofKind(u)) counts.set(u.base_type, (counts.get(u.base_type) || 0) + 1);
     put(chipsBox,
+      h("div", { class: "chips compact" }, h("span", { class: "hint cat" }, "Show only"),
+        UNIQUE_KINDS.map(([k, label, test]) => chipToggle(`${label} uniques`, state.kind === k, () => {
+          state.kind = state.kind === k ? null : k;
+          drawChips(); drawPicker();
+        }, `${listed.filter(test).length}`))),
       basesByCategory().map(([cat, bases]) => {
-        const here = bases.filter((b) => counts.get(b.id));
+        const here = bases.filter((b) => counts.get(b.id) || state.types.has(b.id));
         return here.length ? h("div", { class: "chips compact" }, h("span", { class: "hint cat" }, cat),
           here.map((b) => chipToggle(b.name, state.types.has(b.id), () => {
             if (state.types.has(b.id)) state.types.delete(b.id); else state.types.add(b.id);
             drawChips(); drawPicker();
-          }, `${counts.get(b.id)}`))) : null;
+          }, `${counts.get(b.id) || 0}`))) : null;
       }),
       state.types.size ? h("button", { onclick: () => { state.types.clear(); drawChips(); drawPicker(); } }, "All types") : null);
   };
@@ -1692,7 +1931,7 @@ function uniquesEditor(c) {
       : h("span", { class: "hint" }, "Empty: add uniques here or in-game."),
     rolled ? h("p", { class: "hint" }, `${rolled} of them need certain rolls: open one to see or change its roll ranges.`) : null,
     c.uniques.length ? h("div", { class: "row" }, h("button", { onclick: () => mutate(() => { c.uniques = []; }, re) }, "Remove all")) : null,
-    h("div", { class: "group-label" }, "Add uniques - quick filter by item type"), chipsBox, pickerBox);
+    h("div", { class: "group-label" }, "Add uniques - quick filters"), chipsBox, pickerBox);
 }
 
 /* ---------- rule list actions ---------- */
@@ -1877,7 +2116,7 @@ function renderLevForm() {
     h("div", { class: "chips" }, S.meta.enums.rarities.map((r) => chipToggle(cap(r), o.rarity.includes(r), () => toggleList(o.rarity, r)))),
     h("p", { class: "hint" }, "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names "
       + "(e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there "
-      + "aren't offered. Hover a toggle to see where its affixes roll. Good bases get their own rule, on until the cap (then the BiS rules take over)."));
+      + "aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll. Good bases get their own rule, on until the cap (then the BiS rules take over)."));
 
   put(f, h("h3", {}, "Weapons"), typeChips(S.meta.enums.weapons, o.weapons),
     h("div", { class: "row" }, h("label", {}, "Weapon and off-hand rules",
@@ -2127,6 +2366,7 @@ function renderLevPreview() {
       total != null ? h("span", { class: total > S.meta.max_rules ? "bad" : "" }, ` · filter would have ${total}/${S.meta.max_rules} rules`) : ""),
     h("div", { class: "row" },
       h("button", { class: "primary", disabled: !S.doc || !n || total > S.meta.max_rules, onclick: applyLeveling }, S.doc ? "Apply to the open filter" : "No filter open"),
+      h("button", { title: REMOVE_AFFIX_TITLE, onclick: openRemoveAffix }, "Remove an affix…"),
       h("span", { class: "hint" }, "Applying replaces the earlier generated section; save afterwards."))),
     res.warnings.map((w) => h("div", { class: "warn" }, `⚠ ${w}`)));
 
@@ -2394,6 +2634,7 @@ function renderIdolSummary() {
     total != null ? h("span", { class: total > S.meta.max_rules ? "bad" : "" }, ` · filter would have ${total}/${S.meta.max_rules} rules`) : ""),
   h("div", { class: "row" },
     h("button", { class: "primary", disabled: !S.doc || (!n && !res.removed) || total > S.meta.max_rules, onclick: applyIdols }, S.doc ? "Apply to the open filter" : "No filter open"),
+      h("button", { title: REMOVE_AFFIX_TITLE, onclick: openRemoveAffix }, "Remove an affix…"),
     h("span", { class: "hint" }, "Then save. Without a section yet it goes under a separator named like IDOL, else right before the uniques, else at the top.")),
   res.warnings.map((w) => h("div", { class: "warn" }, `⚠ ${w}`)),
   n ? h("details", {}, h("summary", {}, "Generated rules"),
@@ -2686,6 +2927,7 @@ function renderBisSummary() {
     total != null ? h("span", { class: total > S.meta.max_rules ? "bad" : "" }, ` · filter would have ${total}/${S.meta.max_rules} rules`) : ""),
   h("div", { class: "row" },
     h("button", { class: "primary", disabled: !S.doc || (!n && !res.removed) || total > S.meta.max_rules, onclick: applyBis }, S.doc ? "Apply to the open filter" : "No filter open"),
+      h("button", { title: REMOVE_AFFIX_TITLE, onclick: openRemoveAffix }, "Remove an affix…"),
     h("span", { class: "hint" }, "Replaces its \"BIS - \" rules (the template's generic ones the first time); then save.")),
   res.warnings.map((w) => h("div", { class: "warn" }, `⚠ ${w}`)),
   n ? h("details", {}, h("summary", {}, "Generated rules"),
@@ -2740,7 +2982,7 @@ function renderBisEditor() {
   // bases
   put(p, h("h3", {}, multi ? "Item types and bases" : "Bases"),
     h("p", { class: "hint" }, multi ? "Tick the types the build may use - each gets its own rules - then, if you like, their bases (none ticked = every base)."
-      : "None ticked = every base. Hover a base for its implicits."));
+      : "None ticked = every base. Hover a base (or press and hold it) for its implicits."));
   const baseChips = (t) => {
     const ids = s.bases[t] || [];
     // a single-type slot keeps no entry while no base is ticked (no base filter, nothing picked)
@@ -3040,7 +3282,7 @@ function wire() {
   $("#btn-down").onclick = () => stepRule(1);
   $("#btn-refresh").onclick = refreshGenerated;
   $("#btn-free").onclick = freeUpRules;
-  $("#btn-remove-affix").onclick = () => removeAffixEverywhere();
+  $("#btn-remove-affix").onclick = openRemoveAffix;
   $("#btn-restore-exalted").onclick = restoreExalted;
   $("#btn-complete").onclick = addMissingSections;
   $("#btn-reorder").onclick = reorderSections;
@@ -3072,7 +3314,9 @@ function wire() {
 
 async function init() {
   wire();
-  document.addEventListener("mouseover", (e) => { if (!e.target.closest?.(".aval, .chip")) hideTip(); });
+  // A tip whose element was re-rendered under the mouse gets no pointerleave: moving onto anything else hides it.
+  document.addEventListener("pointerover", (e) => { if (e.pointerType !== "touch" && !tipOwner(e.target)) hideTip(); });
+  wireTouchTips();
   try {
     S.meta = await api("/api/meta");
   } catch (e) {
