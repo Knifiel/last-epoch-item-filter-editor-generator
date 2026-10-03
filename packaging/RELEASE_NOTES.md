@@ -3,6 +3,20 @@
 Edit Last Epoch loot filters outside the game, and generate rules for uniques, leveling, idols,
 BiS items, shattering and more - straight from your own game installation.
 
+### What's new in v0.3.2
+
+- The always-show rule at the top now takes personal affixes only (*ALWAYS SHOW - PERSONAL
+  AFFIXES*): Variant mods only come on two non-random uniques (Unsated Rage, Withstand the
+  Elements), which the unique rules show already. Your new-filter template gets it when this
+  version starts (unless you changed that rule in config.toml); existing filters with *↻ [A] rules*.
+- **Uniques at the bottom**: *Reorder generated sections* moves the unique & set rules (Weaver's
+  Will included) right above the leveling section, so the exalted, BiS and idol sections come
+  first - new filters already have that order. Fixed: refreshing the `[A]` rules of a filter that
+  still had the five old class hide rules moved the uniques up next to the shatter section.
+- The new-filter template's update also regenerates its `[A]` rules the way *New* does (current
+  game data, e.g. uniques added by a patch; on/off states, filled build slots and the class hide
+  rule's classes kept).
+
 ### What's new in v0.3.1
 
 - **Affixes named and ordered like the in-game picker**: affix lists and picked affixes are

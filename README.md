@@ -212,10 +212,12 @@ of the game's languages (the editor's own labels stay English).
   ranges, as in-game: type the values the tooltip shows; they're stored as the game stores
   them (rolls 0-255, converted the game's way). *Preview at character level* dims rules that are switched off at that level.
 - **Reorder generated sections** (Rules tab) moves the generated sections back to their
-  places - BiS rules under the BiS header, the idol section right before the uniques, the
-  leveling section above the bottom hide-everything rule (each only if the filter has that
-  spot), then the shatter section and the class hide rule to the top, right below the
-  always-show rules; other rules stay where they are. Ctrl+Z undoes it.
+  places - the unique & set rules (Weaver's Will included; rarely edited, so they come after the
+  rest) right above the leveling section, else above the bottom hide-everything rule, BiS rules
+  under the BiS header, the idol section right before the uniques, the leveling section above
+  the bottom hide-everything rule (each only if the filter has that spot), then the shatter
+  section and the class hide rule to the top, right below the always-show rules; other rules
+  stay where they are (your own rules among the uniques move with them). Ctrl+Z undoes it.
 - **Restore exalted section…** (Rules tab) puts the new-filter template's exalted & legendary
   section back into the open filter - handy when the template gained rules after the filter was
   made (e.g. the corrupted rules): *only add missing ones* (each after the rule it follows in the
@@ -251,7 +253,7 @@ of the game's languages (the editor's own labels stay English).
   the template has them, rules you removed stay removed, rules you changed keep your
   version, untouched ones take the new one (the old template goes to the backups, each
   update is logged in `templates/.generated/updates.log`). Top to bottom it has: the
-  always-show personal/variant affix rule; a **shatter section** (`[shatter]`: magic and rare
+  always-show personal affix rule; a **shatter section** (`[shatter]`: magic and rare
   gear - idols can't be shattered, exalted items have the exalted rules - with rare-roll
   affixes: roll weighting <= 0.15, i.e. Hybrid Health and the "X and minion X penetration"
   ones; plus one rule per class for its class-specific affixes at T3+; above the class hide

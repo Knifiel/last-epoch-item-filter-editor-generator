@@ -268,7 +268,7 @@ class MergeResult:
 
 def merge(base: BaseFilter, generated: list[str], prefix: str, drop: list[str], after: str = "",
           keep_above: list[str] = (), keep: list[dict] | None = None, top: list[str] = (),
-          elsewhere: list[str] = ()) -> MergeResult:
+          elsewhere: list[str] = (), elsewhere_names=()) -> MergeResult:
     """Replace previously generated rules (by name prefix) and rules matching `drop`.
 
     With `keep`, only base rules matched by one of its entries (plus the
@@ -278,9 +278,10 @@ def merge(base: BaseFilter, generated: list[str], prefix: str, drop: list[str], 
     Rules matching `keep_above` are moved directly above the block so they keep
     priority over it (e.g. build picks made in-game). `top` blocks go to the very
     top of the filter; their previous copies, like those of `elsewhere` blocks (which
-    the caller places itself), never decide where the main block goes.
+    the caller places itself) and rules named in `elsewhere_names` (e.g. what earlier
+    versions called them), never decide where the main block goes.
     """
-    top_names = {BaseFilter.rule_name(b) for b in [*top, *elsewhere]}
+    top_names = {BaseFilter.rule_name(b) for b in [*top, *elsewhere]} | set(elsewhere_names)
     drop_patterns = [re.compile(p) for p in drop]
     above_patterns = [re.compile(p) for p in keep_above]
     flags = _keep_flags(rule_infos(base.blocks), keep)

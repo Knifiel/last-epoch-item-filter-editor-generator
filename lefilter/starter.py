@@ -34,7 +34,7 @@ from .sections import (IDOL_PLACEMENT, class_hide_index, doc_infos, insert_posit
                        place_shatter)
 
 PARTS = {
-    "personal": "Always show personal & variant affixes ([[affix_rule]])",
+    "personal": "Always show personal affixes ([[affix_rule]])",
     "shatter": "Shatter section: magic / rare gear with rare-roll affixes + class affixes ([shatter])",
     "class_hide": "Class item hide rules (the chosen class's one enabled)",
     "bis": "BiS section: generic per-slot rules, switched off - the Best in slot tab fills them ([bis])",
@@ -236,7 +236,7 @@ def refresh_generated(config: dict, data: dict, rules: list[dict]) -> dict:
     blocks = [node_to_xml(encode_rule(r, 0), 2) for r in rules]
     had_block = any(r.get("name", "").startswith(prefix) for r in rules)
     result = merge(BaseFilter(header=FilterHeader(name=""), blocks=blocks), generated, prefix, drop=[],
-                   top=top, elsewhere=class_blocks)
+                   top=top, elsewhere=class_blocks, elsewhere_names=old_class_hide_names(config))
     out, at = result.blocks, result.insert_at
     if not had_block:   # first time: under a separator named like UNIQUE, else above a bottom hide rule
         rest = out[:at] + out[at + len(generated):]
@@ -570,6 +570,13 @@ def sync_template(path: Path, config: dict, data: dict, backup_dir: Path | None 
     if _version(stamp) < LAYOUT_VERSION:   # once: the shatter section moved to the top
         rules = place_shatter(rules, top, hide)
     rules = place_class_hide(rules, top, hide)   # refreshing puts them there anyway
+    # the [A] rules as New makes them (current game data; on/off, filled build slots, class picks kept):
+    # New regenerates them anyway, so an obsolete one the user changed goes too
+    if config.get("filter", {}).get("rule_prefix"):   # without a prefix there are no [A] rules to tell apart
+        before = [r.get("name") for r in rules]
+        rules = refresh_generated(config, data, rules)["rules"]
+        after = {r.get("name") for r in rules}
+        report["dropped"] += [n for n in before if n and n not in after and n not in report["dropped"]]
     backup = None
     if backup_dir is not None:
         backup_dir.mkdir(parents=True, exist_ok=True)

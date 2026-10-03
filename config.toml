@@ -94,8 +94,8 @@ extremely_rare = 0.95
 # Same rule options as below except LP/WW; categories are the picker's headers.
 
 [[affix_rule]]
-name = "ALWAYS SHOW - PERSONAL & VARIANT AFFIXES"
-affix_categories = ["Personal", "Variant"]
+name = "ALWAYS SHOW - PERSONAL AFFIXES"
+affix_categories = ["Personal"]   # Variant mods only come on two non-random uniques: the unique rules show them
 emphasized = true
 
 # --- new-filter template -------------------------------------------------------------

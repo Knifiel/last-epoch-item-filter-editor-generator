@@ -129,14 +129,43 @@ def place_shatter(rules: list[dict], top_names, hide_names=()) -> list[dict]:
     return rest[:at] + [rules[i] for i in sorted(block)] + rest[at:]
 
 
+def place_uniques(rules: list[dict], prefix: str, skip_names) -> list[dict]:
+    """The generated unique & set block - the `prefix` rules but the always-show and class hide ones
+    (skip_names) - moved right above the leveling section, else above the bottom catch-all hide
+    rule: it's rarely edited, so the exalted, BiS ... sections come first. The user's own rules
+    within its span move with it (unless another section's header sits in there: then only the
+    generated rules move). Unchanged without such a spot."""
+    named = lambda r: "raw" not in r and (r.get("name") or "")
+    mine = [i for i, r in enumerate(rules) if named(r).startswith(prefix) and r.get("name") not in skip_names]
+    if not prefix or not mine:
+        return list(rules)
+    span = range(mine[0], mine[-1] + 1)
+    foreign = any("raw" not in rules[i] and not rules[i].get("conditions") and not named(rules[i]).startswith(prefix)
+                  for i in span)
+    take = (set(mine) if foreign else set(span)) - {i for i in span if rules[i].get("name") in skip_names}
+    rest = [r for i, r in enumerate(rules) if i not in take]
+    infos = doc_infos(rest)
+    fallback = "bottom" if infos and infos[-1].catch_all else None
+    _, at = insert_position(infos, "\0", section="\0", before="LEVELING", fallback=fallback)
+    if at is None:
+        return list(rules)
+    return rest[:at] + [rules[i] for i in sorted(take)] + rest[at:]
+
+
 def reorder_generated(rules: list[dict], prefixes: dict[str, str], top_names=(), hide_names=()) -> tuple[list[dict], list[str]]:
-    """The generated sections - BiS rules, the idol section, the leveling section; prefixes:
-    {"bis", "idols", "leveling"} -> rule name prefix - moved back to where they belong (see the
-    placements), each only when the filter has that spot; then the shatter section and the class
-    hide rules to the top (see above). Returns (rules, labels of what moved)."""
+    """The generated sections moved back to where they belong: the unique & set block (prefixes
+    "uniques", see place_uniques) first, then BiS rules, the idol section, the leveling section
+    ({"bis", "idols", "leveling"} -> rule name prefix; see the placements), each only when the
+    filter has that spot; then the shatter section and the class hide rules to the top (see
+    above). Returns (rules, labels of what moved)."""
     placements = (("BiS rules", prefixes.get("bis"), BIS_PLACEMENT), ("idol section", prefixes.get("idols"), IDOL_PLACEMENT),
                   ("leveling section", prefixes.get("leveling"), LEVELING_PLACEMENT))
     out, moved = list(rules), []
+    if prefixes.get("uniques"):
+        new = place_uniques(out, prefixes["uniques"], set(top_names) | set(hide_names))
+        if [id(r) for r in new] != [id(r) for r in out]:
+            moved.append("unique section")
+        out = new
     for label, prefix, where in placements:
         if not prefix:
             continue

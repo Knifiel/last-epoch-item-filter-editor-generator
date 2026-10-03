@@ -63,3 +63,24 @@ def test_reorder_puts_class_hide_rules_below_the_shatter_section():
     out, moved = reorder_generated(old, {}, TOP, HIDE)
     assert moved == ["shatter section", "class hide rules"] and names(out) == names(TEMPLATE)
     assert reorder_generated(out, {}, TOP, HIDE) == (out, [])
+
+
+def test_reorder_puts_the_unique_block_right_above_the_leveling_section():
+    # what a refresh with the old per-class hide rules did: uniques right after the shatter section
+    uniques = [sep("[A] ------- UNIQUES -------"), rule("[A] ANY UNIQUE"), rule("Mine among the uniques"),
+               sep("[A] --- SET ITEMS ---"), rule("[A] SET RARE+")]
+    rules = ([TEMPLATE[0], *TEMPLATE[1:3], *uniques, *TEMPLATE[3:5], sep("------ BIS ITEMS ------"), rule("BIS - Helmet"),
+              sep("------ EXALTED & LEGENDARY ------"), rule("ALL T8"), sep("[I] ------- IDOLS (auto) -------"), rule("[I] Small idol"),
+              sep("[L] ------- LEVELING (auto) -------"), rule("[L] Helmet 0-59"), new_rule("HIDE EVERYTHING ELSE", type="HIDE")])
+    prefixes = {"uniques": "[A] ", "bis": "BIS - ", "idols": "[I] ", "leveling": "[L] "}
+    out, moved = reorder_generated(rules, prefixes, TOP, HIDE)
+    n = names(out)
+    assert moved == ["unique section"]
+    assert n == ["[A] ALWAYS SHOW", "------ SHATTER AFFIXES ------", "SHATTER - RARE-ROLL", *HIDE, "------ BIS ITEMS ------",
+                 "BIS - Helmet", "------ EXALTED & LEGENDARY ------", "ALL T8", "[I] ------- IDOLS (auto) -------", "[I] Small idol",
+                 *[r["name"] for r in uniques], "[L] ------- LEVELING (auto) -------", "[L] Helmet 0-59", "HIDE EVERYTHING ELSE"]
+    assert reorder_generated(out, prefixes, TOP, HIDE) == (out, [])
+    # no leveling section: right above the bottom hide rule; the template's order stays as it is
+    bare = [r for r in rules if not r["name"].startswith("[L]")]
+    assert names(reorder_generated(bare, prefixes, TOP, HIDE)[0])[-2:] == ["[A] SET RARE+", "HIDE EVERYTHING ELSE"]
+    assert reorder_generated(TEMPLATE, prefixes, TOP, HIDE) == (TEMPLATE, [])

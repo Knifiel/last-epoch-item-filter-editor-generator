@@ -28,7 +28,7 @@ SLOT_KEYS = RULE_KEYS - {"label"} | {"name"}
 AFFIX_RULE_KEYS = RULE_KEYS - {"label", "lp_min", "lp_max", "ww_min", "ww_max"} | {"name", "affix_categories"}
 CLASS_HIDE_KEYS = {"add", "name", "rarity", "enabled_for"}
 # Defaults this version's config.toml changed, as (earlier versions' default, this version's): the
-# rules of [[group]]s by name, and the [[exalted_rule]] list. The packaged app's config.toml is a
+# rules of [[group]]s by name, and the [[exalted_rule]] and [[affix_rule]] lists. The packaged app's config.toml is a
 # copy from its first run: read_config gives a setting still at the old default the new one (one
 # the user changed stays theirs); released_defaults does the reverse, rebuilding what earlier
 # versions generated from a config (see starter.sync_template).
@@ -45,6 +45,9 @@ _EXALTED_V020 = [
 ]
 CLASS_HIDE_NAME = "Hide items of other classes (select what classes you don't want to see)"
 UPDATED_CLASS_HIDE_NAME = ("Hide non-{class} class non-legendary items", CLASS_HIDE_NAME)   # one rule per class before v0.3.1
+UPDATED_AFFIX_RULES = (   # v0.3.2: Variant mods only come on two non-random uniques, which the unique rules show
+    [{"name": "ALWAYS SHOW - PERSONAL & VARIANT AFFIXES", "affix_categories": ["Personal", "Variant"], "emphasized": True}],
+    [{"name": "ALWAYS SHOW - PERSONAL AFFIXES", "affix_categories": ["Personal"], "emphasized": True}])
 UPDATED_EXALTED_RULES = (_EXALTED_V020, _EXALTED_V020 + [
     {"name": "EXALTED - CORRUPTED DOUBLE T7", "min": 2, "tier": 7, "corrupted": True, "color": 11, "emphasized": True}])
 
@@ -61,6 +64,8 @@ def _swap_defaults(config: dict, to_new: bool) -> dict:
             g["rules"] = swap(*UPDATED_GROUP_RULES[g["name"]], g["rules"])
     if "exalted_rule" in out:
         out["exalted_rule"] = swap(*UPDATED_EXALTED_RULES, out["exalted_rule"])
+    if "affix_rule" in out:
+        out["affix_rule"] = swap(*UPDATED_AFFIX_RULES, out["affix_rule"])
     if "name" in out.get("class_hide", {}):
         out["class_hide"]["name"] = swap(*UPDATED_CLASS_HIDE_NAME, out["class_hide"]["name"])
     return out

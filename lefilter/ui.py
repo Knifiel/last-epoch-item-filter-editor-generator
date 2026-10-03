@@ -262,7 +262,8 @@ class Api:
             spot = class_hide_spot(self.config, self.data)
         except (ConfigError, ValueError, KeyError, tomllib.TOMLDecodeError):   # a broken config.toml: the rest still works
             spot = {}
-        rules, moved = reorder_generated(body["rules"], {"bis": bis.PREFIX, **body.get("prefixes", {})}, **spot)
+        prefix = self.config.get("filter", {}).get("rule_prefix", "") if spot else ""
+        rules, moved = reorder_generated(body["rules"], {"bis": bis.PREFIX, "uniques": prefix, **body.get("prefixes", {})}, **spot)
         return {"rules": rules, "moved": moved}
 
     def bis_read(self, body: dict) -> dict:

@@ -389,9 +389,10 @@ def test_first_update_of_a_v020_template_gets_this_versions_defaults(tmp_path, m
     monkeypatch.setattr(starter, "__version__", "0.3.0")
     res = starter.sync_template(path, config, data, tmp_path / "backups")
     names = [r["name"] for r in parse_filter(path.read_bytes().decode("utf-8-sig"))["rules"]]
+    # [A] rules are regenerated as New makes them: the recoloured obsolete one goes too
     assert [n for n in names if n.startswith("[A] WEAVER")] == ["[A] WEAVER - 19+ WW", "[A] WEAVER - 15-18 WW",
-                                                                 "[A] WEAVER - 0-14 WW", "[A] WEAVER - 0-16 WW"]
-    assert set(res["dropped"]) == {"[A] WEAVER - 17+ WW", *[r["name"] for r in hides]}
+                                                                 "[A] WEAVER - 0-14 WW"]
+    assert set(res["dropped"]) == {"[A] WEAVER - 17+ WW", "[A] WEAVER - 0-16 WW", *[r["name"] for r in hides]}
     assert names.index("EXALTED - CORRUPTED DOUBLE T7") == names.index("EXALTED - SINGLE T7") + 1
     assert names.index("SHOW ALL CORRUPTED ITEMS") == names.index("EXALTED - CORRUPTED DOUBLE T7") + 1
     assert names[1] == "------ SHATTER AFFIXES ------"                       # moved to the top...
@@ -465,3 +466,31 @@ def test_restore_the_exalted_section_from_the_template():
     assert out.index(header) == bis_end + 1 and out[bis_end + 1:bis_end + 1 + len(section)] == section
     with pytest.raises(ConfigError):
         restore_section(bare, {"rules": bare}, header)
+
+
+def test_a_v031_template_gets_the_personal_only_always_show_rule(tmp_path, monkeypatch):
+    from lefilter import starter
+    from lefilter.filterdoc import parse_filter
+    from lefilter.rules import UPDATED_AFFIX_RULES
+    path = tmp_path / "templates" / "New filter.xml"
+    data = {**FULL, "affixes": FULL["affixes"] + [{**gaffix(1200, "Personal thing", category="Personal"), "special": 2},
+                                                  {**gaffix(1111, "Blood Rage Frenzy", category="Variant"), "special": 7}]}
+    old_config = {**FULL_CONFIG, "affix_rule": UPDATED_AFFIX_RULES[0]}
+    monkeypatch.setattr(starter, "__version__", "0.3.1")
+    starter.write_generated_template(path, make_template(old_config, data))
+    monkeypatch.setattr(starter, "__version__", "0.3.2")
+    res = starter.sync_template(path, {**FULL_CONFIG, "affix_rule": UPDATED_AFFIX_RULES[1]}, data)
+    rules = parse_filter(path.read_bytes().decode("utf-8-sig"))["rules"]
+    assert rules[0]["name"] == "[A] ALWAYS SHOW - PERSONAL AFFIXES" and res["dropped"] == ["[A] ALWAYS SHOW - PERSONAL & VARIANT AFFIXES"]
+    assert next(c for c in rules[0]["conditions"] if c["type"] == "AffixCondition")["affixes"] == [1200]
+
+
+def test_old_per_class_hide_rules_dont_drag_the_unique_block_up_on_refresh():
+    from lefilter.rules import plan_class_hide
+    template = make_template(FULL_CONFIG, FULL)["rules"]
+    old_config = {**FULL_CONFIG, "class_hide": {"add": True, "name": "Hide non-{class} class non-legendary items"}}
+    old_hide = parse_rule_blocks([render_rule(r) for r in plan_class_hide(old_config, per_class=True)])
+    rules = [template[0], *old_hide, *[r for r in template[1:] if r["name"] != HIDE]]   # five old ones right below the top
+    names = [r["name"] for r in refresh_generated(FULL_CONFIG, FULL, rules)["rules"]]
+    assert names.index("[A] --- UNIQUES ---") > names.index("LEGENDARY")                 # stays below the exalted section
+    assert names.index(HIDE) == names.index("SHATTER - ROGUE AFFIXES") + 1 and not [n for n in names if "Hide non-" in n]

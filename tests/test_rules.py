@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from lefilter.rules import (UPDATED_CLASS_HIDE_NAME, UPDATED_EXALTED_RULES, UPDATED_GROUP_RULES, ConfigError, RuleSpec, categorize, plan_rules,
+from lefilter.rules import (UPDATED_AFFIX_RULES, UPDATED_CLASS_HIDE_NAME, UPDATED_EXALTED_RULES, UPDATED_GROUP_RULES, ConfigError, RuleSpec, categorize, plan_rules,
                             released_defaults, upgrade_config)
 
 THRESHOLDS = {"uncommon": 0.25, "rare": 0.5, "very_rare": 0.75, "extremely_rare": 0.95}
@@ -120,6 +120,8 @@ def test_weaver_brackets_and_old_defaults_upgrade():
     assert back["exalted_rule"] == UPDATED_EXALTED_RULES[0] and back["starter"]["corrupted"] is False
     assert raw["class_hide"]["name"] == UPDATED_CLASS_HIDE_NAME[1] and back["class_hide"]["name"] == UPDATED_CLASS_HIDE_NAME[0]
     assert upgrade_config(released_defaults(raw))["class_hide"]["name"] == UPDATED_CLASS_HIDE_NAME[1]
+    assert raw["affix_rule"] == UPDATED_AFFIX_RULES[1] and back["affix_rule"] == UPDATED_AFFIX_RULES[0]
+    assert upgrade_config({"affix_rule": UPDATED_AFFIX_RULES[0]})["affix_rule"] == UPDATED_AFFIX_RULES[1]
 
 
 def test_set_groups_use_set_rarity_and_headers_become_separators():

@@ -18,7 +18,7 @@ from .paths import (CACHE_DIR, CONFIG_FILE, DATA_DIR, FROZEN, OUT_DIR, TEMPLATE_
                     save_game_dir, saved_game_dir)
 from .leveling import LevelingPlan, parse_options, plan_leveling
 from .sections import RuleInfo, class_hide_index, place
-from .starter import describe_template_update, sync_template
+from .starter import describe_template_update, old_class_hide_names, sync_template
 from .report import build_report, histogram_markdown, leveling_markdown
 from .rules import ConfigError, Rule, RuleSpec, plan_affix_rules, plan_class_hide, plan_rules, read_config
 from .tools import ToolError
@@ -189,7 +189,7 @@ def cmd_build(args) -> None:
         base_path = _resolve_base(base_ref, config, data)
         base = read_filter(base_path)
         result = merge(base, generated, prefix, mcfg.get("drop", []), mcfg.get("after", ""),
-                       mcfg.get("keep_above", []), mcfg.get("keep"), top, class_blocks)
+                       mcfg.get("keep_above", []), mcfg.get("keep"), top, class_blocks, old_class_hide_names(config))
         name = args.name or mcfg.get("name") or f"{base.header.name} (auto)"
         header = FilterHeader(name=name, icon=base.header.icon, icon_color=base.header.icon_color,
                               description=(MARKER_RE.sub("", base.header.description) + " " + marker).strip(),
