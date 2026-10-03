@@ -3,62 +3,62 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Last Epoch Item Filter Editor</title>
+<title data-t>Last Epoch Item Filter Editor</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
 <header class="topbar">
-  <div class="brand">Last Epoch <span>item filter editor</span></div>
-  <select id="file-select" title="Filter to edit"></select>
-  <button id="btn-new" title="Start a new filter from the template">New</button>
-  <button id="btn-reload" title="Reload the file from disk (drops unsaved changes)">Reload</button>
-  <button id="btn-save" class="primary" title="Save (Ctrl+S)">Save</button>
-  <button id="btn-saveas" title="Save under a new name">Save as…</button>
-  <button id="btn-delete" class="danger" title="Delete this filter file (asks first; a backup copy is kept)">Delete</button>
-  <button id="btn-undo" title="Undo (Ctrl+Z)">↶</button>
-  <button id="btn-redo" title="Redo (Ctrl+Y)">↷</button>
+  <div class="brand">Last Epoch <span data-t>item filter editor</span></div>
+  <select id="file-select" data-t-title title="Filter to edit"></select>
+  <button id="btn-new" data-t-title title="Start a new filter from the template" data-t>New</button>
+  <button id="btn-reload" data-t-title title="Reload the file from disk (drops unsaved changes)" data-t>Reload</button>
+  <button id="btn-save" class="primary" data-t-title title="Save (Ctrl+S)" data-t>Save</button>
+  <button id="btn-saveas" data-t-title title="Save under a new name" data-t>Save as…</button>
+  <button id="btn-delete" class="danger" data-t-title title="Delete this filter file (asks first; a backup copy is kept)" data-t>Delete</button>
+  <button id="btn-undo" data-t-title title="Undo (Ctrl+Z)">↶</button>
+  <button id="btn-redo" data-t-title title="Redo (Ctrl+Y)">↷</button>
   <div class="spacer"></div>
-  <select id="lang-select" title="Language of the game's names: items, uniques, affixes and their values (the editor itself stays English)"></select>
+  <select id="lang-select" data-t-title title="Language of the editor and of the game's names: items, uniques, affixes and their values"></select>
   <div id="status" class="status"></div>
 </header>
 <nav class="tabs">
-  <button data-tab="rules" class="active">Rules</button>
-  <button data-tab="leveling">Leveling generator</button>
-  <button data-tab="bis">Best in slot</button>
-  <button data-tab="idols">Idols and Idol Altars generator</button>
-  <button data-tab="test">Test an item</button>
+  <button data-tab="rules" class="active" data-t>Rules</button>
+  <button data-tab="leveling" data-t>Leveling generator</button>
+  <button data-tab="bis" data-t>Best in slot</button>
+  <button data-tab="idols" data-t>Idols and Idol Altars generator</button>
+  <button data-tab="test" data-t>Test an item</button>
   <div class="spacer"></div>
-  <button id="hdr-icon" title="Filter icon and colour (shown in the game's filter list)"></button>
-  <label class="header-field">Filter name <input id="hdr-name" size="28"></label>
-  <label class="header-field">Description <input id="hdr-desc" size="34"></label>
+  <button id="hdr-icon" data-t-title title="Filter icon and colour (shown in the game's filter list)"></button>
+  <label class="header-field"><span class="hf-label" data-t>Filter name</span> <input id="hdr-name" size="28" data-t-title title="Filter name" data-t-placeholder placeholder="Filter name"></label>
+  <label class="header-field"><span class="hf-label" data-t>Description</span> <input id="hdr-desc" size="34" data-t-title title="Description" data-t-placeholder placeholder="Description"></label>
 </nav>
 <main>
   <section id="tab-rules" class="tab active">
     <div class="split">
       <div class="pane list-pane">
         <div class="toolbar">
-          <button id="btn-add" title="Add a rule below the selected one">+ Rule</button>
-          <button id="btn-dup" title="Duplicate the selected rule">Duplicate</button>
-          <button id="btn-del" title="Delete the selected rule">Delete</button>
-          <button id="btn-up" title="Move up">▲</button>
-          <button id="btn-down" title="Move down">▼</button>
-          <button id="btn-refresh" title="Regenerate the generated [A] rules (unique/set groups, class hide rules, always-show affixes) from config.toml and the current game data. Keeps their on/off state and filled build slots.">↻ [A] rules</button>
-          <button id="btn-free" title="Free rule slots: remove decorative separators, campaign leveling rules or the rules for the most common low-level uniques">Free up rules…</button>
-          <button id="btn-remove-affix" title="Take one affix out of the open filter's rules and the Leveling, Best in slot and Idols tabs' picks at once">Remove an affix…</button>
-          <button id="btn-complete" title="Add the new-filter template's sections this filter lacks: BiS, exalted and legendary, class hide, shatter, hide everything else">Add missing sections…</button>
-          <button id="btn-restore-exalted" title="Put the new-filter template's exalted &amp; legendary section (exalted, corrupted and legendary rules) back into this filter: add the rules it lacks, or replace them all">Restore exalted section…</button>
-          <button id="btn-reorder" title="Move the generated sections back to their places: the unique &amp; set rules right above the leveling section (else the bottom hide-everything rule), BiS rules under the BiS header, the idol section right before the uniques, the leveling section above the bottom hide-everything rule, then the shatter section and the class hide rules to the top, right below the always-show rules">Reorder generated sections</button>
-          <input id="search" type="search" placeholder="Filter rules by name…">
+          <button id="btn-add" data-t-title title="Add a rule below the selected one" data-t>+ Rule</button>
+          <button id="btn-dup" data-t-title title="Duplicate the selected rule" data-t>Duplicate</button>
+          <button id="btn-del" data-t-title title="Delete the selected rule" data-t>Delete</button>
+          <button id="btn-up" data-t-title title="Move up">▲</button>
+          <button id="btn-down" data-t-title title="Move down">▼</button>
+          <button id="btn-refresh" data-t-title title="Regenerate the generated [A] rules (unique/set groups, class hide rules, always-show affixes) from config.toml and the current game data. Keeps their on/off state and filled build slots." data-t>↻ [A] rules</button>
+          <button id="btn-free" data-t-title title="Free rule slots: remove decorative separators, campaign leveling rules or the rules for the most common low-level uniques" data-t>Free up rules…</button>
+          <button id="btn-remove-affix" data-t-title title="Take one affix out of the open filter's rules and the Leveling, Best in slot and Idols tabs' picks at once" data-t>Remove an affix…</button>
+          <button id="btn-complete" data-t-title title="Add the new-filter template's sections this filter lacks: BiS, exalted and legendary, class hide, shatter, hide everything else" data-t>Add missing sections…</button>
+          <button id="btn-restore-exalted" data-t-title title="Put the new-filter template's exalted &amp; legendary section (exalted, corrupted and legendary rules) back into this filter: add the rules it lacks, or replace them all" data-t>Restore exalted section…</button>
+          <button id="btn-reorder" data-t-title title="Move the generated sections back to their places: the unique &amp; set rules right above the leveling section (else the bottom hide-everything rule), BiS rules under the BiS header, the idol section right before the uniques, the leveling section above the bottom hide-everything rule, then the shatter section and the class hide rules to the top, right below the always-show rules" data-t>Reorder generated sections</button>
+          <input id="search" type="search" data-t-placeholder placeholder="Filter rules by name…">
         </div>
         <div class="toolbar level-preview">
-          <label><input type="checkbox" id="lvl-on"> Preview at character level</label>
+          <label><input type="checkbox" id="lvl-on"> <span data-t>Preview at character level</span></label>
           <input type="range" id="lvl-range" min="1" max="100" value="1">
           <input type="number" id="lvl-num" min="1" max="100" value="1">
-          <span class="hint">rules switched off at that level are dimmed</span>
+          <span class="hint" data-t>rules switched off at that level are dimmed</span>
         </div>
         <div id="doc-notice"></div>
-        <div class="list-head"><span>#</span><span>on</span><span></span><span>rule (top = highest priority)</span></div>
+        <div class="list-head"><span>#</span><span data-t>on</span><span></span><span data-t>rule (top = highest priority)</span></div>
         <ol id="rule-list" class="rule-list"></ol>
       </div>
       <div class="pane editor-pane" id="editor"></div>

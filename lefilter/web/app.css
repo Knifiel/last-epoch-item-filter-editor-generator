@@ -58,6 +58,8 @@ textarea { width: 100%; min-height: 140px; font-family: Consolas, monospace; fon
 }
 .tabs > button.active { color: var(--gold); border-bottom-color: var(--gold); }
 .header-field { color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+.tabs.compact .hf-label { display: none; }
+.tabs.compact > button { padding: 10px 10px; }
 
 main { flex: 1; min-height: 0; }
 .tab { display: none; height: 100%; }
@@ -115,7 +117,8 @@ main { flex: 1; min-height: 0; }
 .editor-pane h2 { margin: 4px 0 10px; font-size: 16px; color: var(--gold); font-weight: 600; }
 .editor-pane h3, .pane h3 { margin: 18px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
-.row > label { display: flex; gap: 6px; align-items: center; }
+.row > label { display: flex; gap: 6px; align-items: center; min-width: 0; max-width: 100%; }
+.row > label > select { min-width: 0; max-width: 100%; }   /* as wide as its longest option, but not past the pane */
 .field-name { width: 100%; font-size: 15px; padding: 6px 8px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 .seg button { border: none; border-radius: 0; background: #0e0c10; }

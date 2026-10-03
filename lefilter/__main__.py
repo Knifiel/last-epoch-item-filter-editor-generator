@@ -295,7 +295,8 @@ def cmd_selftest(args) -> None:
         sys.exit(f"no Cpp2IL build known for {platform.system()}")
     tools.ssl_context()
     from .ui import WEB_DIR
-    missing = [f for f in ("index.html", "app.js", "app.css") if not (WEB_DIR / f).is_file()]
+    missing = [f for f in ("index.html", "app.js", "app.css", *(f"i18n/{c}.json" for c in ("de", "fr", "es-es", "pt", "pl", "ru", "jp", "ko", "zh")))
+               if not (WEB_DIR / f).is_file()]
     if missing:
         sys.exit(f"web files missing: {missing}")
     print("selftest ok")

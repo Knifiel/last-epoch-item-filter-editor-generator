@@ -3,6 +3,24 @@
 Edit Last Epoch loot filters outside the game, and generate rules for uniques, leveling, idols,
 BiS items, shattering and more - straight from your own game installation.
 
+### What's new in v0.4.0
+
+- **The editor in your language.** The language menu now switches the whole editor - buttons,
+  labels, hints, dialogs, messages, tooltips, the generators' warnings and the item tester's
+  explanations - to any of the game's 9 languages (Chinese, French, German, Japanese, Korean, Polish,
+  Portuguese, Russian, Spanish), not only the game's names. Where a text is one of the game's own
+  loot-filter words (Rarity, the condition names, rarities, beam sizes, item slots, classes,
+  factions, rune and glyph names ...) it is exactly the game's wording, read from your install; the
+  rest was translated with DeepL using the game's words as its glossary, then reviewed.
+- Rule names the generators write into filters stay English (the editor recognises its generated
+  rules by name).
+- Long translations fit the Steam Deck's 1280×800 screen: the tab bar drops the filter name and
+  description labels before it would wrap (they stay as placeholder and tooltip).
+- The game data is re-read once on the first start (a minute or two): the game's loot-filter words in
+  every language.
+- Translations can be fixed by anyone: one file per language in `lefilter/web/i18n/` (see the README's
+  *Translations* section).
+
 ### What's new in v0.3.4
 
 - **Touch screens: slide to see more.** After pressing and holding something for its tooltip, keep the

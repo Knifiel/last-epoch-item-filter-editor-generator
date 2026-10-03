@@ -32,7 +32,7 @@ from .gamedata import (ARMOUR_TYPES, EQUIPMENT_TYPES, JEWELRY_TYPES, OFFHAND_TYP
 from .paths import SCHEMA_DIR           # optional hand-made type trees (checked after the cached ones)
 
 WEAVERS_WILL = 1  # UniqueList.LegendaryType.WeaversWill
-DATA_VERSION = 20  # bump when data/uniques.json gains fields, so `build` re-extracts
+DATA_VERSION = 21  # bump when data/uniques.json gains fields, so `build` re-extracts
 
 
 class ExtractError(Exception):

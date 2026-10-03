@@ -48,8 +48,8 @@ on Windows and `~/.local/share/last-epoch-item-filter-editor` on Linux.
   undo/redo, an item tester that shows which rule catches an item and why, affixes named, grouped
   and ordered like the in-game picker (picked ones under their category's subheader; a quick filter
   by category and a by-name order for long lists), affix values as the
-  game shows them ("+24-30% Cold Penetration") with per-tier tables, and the game's own names in
-  any of its languages.
+  game shows them ("+24-30% Cold Penetration") with per-tier tables, and the whole editor in any of
+  the game's 9 languages - its own texts and the game's names.
 - **New filter from a template**: legendary/unique and set rules grouped by drop rarity, LP and
   Weaver's Will, exalted and T8 rules, corrupted item rules, a BiS section, shatter rules, class
   item hide rules and a hide-everything-else rule, set up for the class you pick.
@@ -173,6 +173,7 @@ code: they're downloaded on first use (pinned versions, checked against known SH
 | affix value display rules (percent, rounding, plus sign, hidden values) | `MasterPropertyList`, `AbilityPropertyList`, `PlayerPropertyList` in `resources.assets` |
 | idol altar stats | `Idol Altar Property List` in `PermaLoad.bundle` |
 | names and affix texts, English and every game language (saved to `data/lang/`) | `Item_Names`, `Item_Affixes`, `Descriptors`, `Common` localization tables in `StreamingAssets/aa` |
+| the editor's texts that are the game's own words - condition and rarity names, item slots, classes, factions, rune and glyph names ... (`ui` in `data/lang/`) | `UI` localization table in `StreamingAssets/aa` |
 | game version | PlayerSettings in `globalgamemanagers` |
 
 The needed files are copied to `.cache/game/<build>/` first, so the game can be
@@ -198,8 +199,13 @@ Derived values follow the game's own logic:
 `python -m lefilter ui` (what the downloadable program runs) starts a small local web app
 (http://127.0.0.1:8765, standard library only, reachable from this computer only) and opens it
 in the browser - on WSL in the Windows default browser. It edits the filters in the game's
-Filters folder and in `out/`. The language menu switches item, unique and affix names to any
-of the game's languages (the editor's own labels stay English).
+Filters folder and in `out/`. The language menu switches the editor to any of the game's
+languages: its own texts, and item, unique and affix names. Where a text is one of the game's
+loot-filter words (Rarity, the condition names, rarities, item slots, classes, factions, rune and
+glyph names ...) it is the game's own wording, read from your install; the rest was translated
+with [DeepL](https://www.deepl.com/) - with the game's words as its glossary, so sentences use the
+same terms as the game - and then reviewed. Rule names the generators write into filters stay
+English: the editor finds its generated rules by name.
 
 On a touch screen (e.g. the Steam Deck's desktop mode, whose 1280×800 screen the editor fits)
 press and hold where a mouse would hover - a base, an affix or its values, a unique, a toggle, a
@@ -465,6 +471,24 @@ altar (can be switched off).
 Releases are built by GitHub Actions (`.github/workflows/release.yml`, PyInstaller, Windows and
 Linux) when a `v*` tag is pushed.
 
+### Translations
+
+The editor's own texts are in `lefilter/web/i18n/<code>.json`, one file per game language: the
+English text is the key, a count-dependent one (`"{n} rule|{n} rules"`) holds the language's plural
+forms. Fix a translation by editing its entry. Texts that are the game's own words (`UI_GAME_TERMS`
+in `lefilter/i18n.py`) aren't in these files: they come from your install. `packaging/translate_ui.py` keeps them in step:
+
+```bash
+.venv/bin/python packaging/translate_ui.py keys -v    # every text the editor shows
+.venv/bin/python packaging/translate_ui.py check      # missing texts, lost {placeholders}, plural forms
+.venv/bin/python packaging/translate_ui.py terms      # texts that are the game's own words (lefilter/i18n.py UI_GAME_TERMS)
+.venv/bin/python packaging/translate_ui.py translate  # DeepL drafts for new texts (key in ~/.config/leifeg/deepl-key)
+```
+
+`translate` only fills in what a catalog lacks (entries already there are kept) and uses the
+game's words from your extracted game data as DeepL's glossary; nothing of the game's text goes
+into the repository.
+
 ## Credits
 
 ### People
@@ -493,6 +517,7 @@ Linux) when a `v*` tag is pushed.
 - [Cpp2IL](https://github.com/SamboyCoding/Cpp2IL) by [Samboy063](https://github.com/SamboyCoding) -
   recovering the class layouts the game's assets are stored with.
 - [PyInstaller](https://pyinstaller.org/) - the downloadable executables.
+- [DeepL](https://www.deepl.com/) - first drafts of the editor's translations.
 - Texture decoders and the other libraries inside the executables: see `THIRD_PARTY_LICENSES.txt`,
   which ships with each release.
 
