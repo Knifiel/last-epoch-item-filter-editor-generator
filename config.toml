@@ -100,16 +100,19 @@ emphasized = true
 
 # --- new-filter template -------------------------------------------------------------
 # templates/New filter.xml is what the editor's "New" starts from (and `build`'s base). It is
-# generated from these parts, top to bottom: the [[affix_rule]]s, the BiS section, the
-# exalted rules plus a show-all-legendary rule under one header, the [class_hide] rules, the
-# shatter section, the unique / set groups, and a bottom rule hiding everything else (it
+# generated from these parts, top to bottom: the [[affix_rule]]s, the [class_hide] rules, the
+# BiS section, the exalted rules plus a show-all-corrupted and a show-all-legendary rule under
+# one header, the shatter section, the unique / set groups, and a bottom rule hiding everything else (it
 # never hides shards, runes, glyphs or keys: the game only applies rules made of non-equipment
 # conditions to those). Edit the template in the editor; "Rebuild template" regenerates it
-# from here. BiS / exalted / legendary / shatter / hide rules get no rule_prefix: they belong
-# to the filter, so refreshing the [A] rules leaves them alone.
+# from here. BiS / exalted / corrupted / legendary / shatter / hide rules get no rule_prefix:
+# they belong to the filter, so refreshing the [A] rules leaves them alone.
 
 [starter]
 header = "------ EXALTED & LEGENDARY ------"
+# Below the exalted rules: normal to exalted items that dropped corrupted, whatever their affixes
+# (uniques, sets and legendaries keep their own rules). corrupted = false leaves it out.
+corrupted = { name = "SHOW ALL CORRUPTED ITEMS", color = 11 }
 legendary = { name = "SHOW ALL LEGENDARY ITEMS", color = 7, emphasized = true }
 hide_rest = { name = "HIDE EVERYTHING ELSE" }
 
@@ -140,8 +143,9 @@ class_tier = 3
 color = 16
 
 # Generic exalted rules: items with `min` ordinary gear affixes of at least tier `tier`
-# (whose tiers add up to at least `total`, if given); uncorrupted = only uncorrupted items.
-# Rule options as above. T8 comes first: those items would otherwise be caught as T7+.
+# (whose tiers add up to at least `total`, if given); uncorrupted = only uncorrupted items,
+# corrupted = only corrupted ones. Rule options as above. T8 comes first: those items would
+# otherwise be caught as T7+.
 
 [[exalted_rule]]
 name = "ALL T8 ITEMS"
@@ -176,12 +180,20 @@ tier = 7
 uncorrupted = true
 color = 8
 
+[[exalted_rule]]
+name = "EXALTED - CORRUPTED DOUBLE T7"
+min = 2
+tier = 7
+corrupted = true
+color = 11
+emphasized = true
+
 # --- class item hide rules -----------------------------------------------------------
 # One hide rule per class for class-specific items only the OTHER four classes can use,
-# e.g. "[A] Hide non-Sentinel class non-legendary items". Placed directly above the
-# separator heading the generated block (in the template: right after the exalted rules),
-# so it also keeps those items out of the leveling rules below. All start disabled: in a
-# build's copy of the template, enable the one for its class.
+# e.g. "[A] Hide non-Sentinel class non-legendary items". Placed right below the always-show
+# affix rules at the top, so they keep those items out of every rule below (BiS, corrupted,
+# shatter, leveling ...). All start disabled: in a build's copy of the template, enable the
+# one for its class.
 
 [class_hide]
 add = true

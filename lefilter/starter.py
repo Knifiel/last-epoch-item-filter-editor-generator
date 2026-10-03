@@ -1,10 +1,10 @@
 """Starter filters (the editor's New button) and refreshing the generated [A] rules of a filter.
 
-A starter filter is built from parts, top to bottom: the [[affix_rule]]s, the BiS section
+A starter filter is built from parts, top to bottom: the [[affix_rule]]s, the [class_hide] rules (the
+chosen class's one enabled: it keeps other classes' items out of every rule below), the BiS section
 (generic per-slot rules, switched off, which the editor's Best in slot tab replaces), generic [[exalted_rule]]s
-(T8 first) and a show-all-legendary rule under one header, the [class_hide] rules (the
-chosen class's one enabled), the shatter section, the unique / set groups, optionally the
-leveling section, and a bottom rule hiding everything else. That last one never hides shards, runes, glyphs
+(T8 first), a show-all-corrupted and a show-all-legendary rule under one header, the shatter section,
+the unique / set groups, optionally the leveling section, and a bottom rule hiding everything else. That last one never hides shards, runes, glyphs
 or keys: the game only applies rules made of non-equipment conditions to those
 (Rule.MatchNonEquipment). Exalted, legendary and hide-everything rules get no rule prefix:
 they belong to the filter from then on, like rules kept from a base filter.
@@ -23,28 +23,29 @@ from pathlib import Path
 
 from . import __version__, bis, idols
 from .filterdoc import encode_rule, node_to_xml, parse_filter, parse_rule_blocks, render_filter
-from .filterxml import BaseFilter, FilterHeader, insert_above_section, merge, render_rule, rule_infos, write_filter
+from .filterxml import BaseFilter, FilterHeader, merge, render_rule, rule_infos, write_filter
 from .gamedata import ARMOUR_TYPES, CLASS_FILTER_ICONS, CLASSES, JEWELRY_TYPES, OFFHAND_TYPES, TYPE_IDS, WEAPON_TYPES
 from .leveling import (CLASS_CATEGORIES, SECTION_OF, build_affixes, gear_affixes, parse_options as parse_leveling,
                        plan_leveling, rolling_on)
-from .rules import (RULE_KEYS, UPDATED_GROUP_RULES, ConfigError, Rule, RuleSpec, _check_keys, plan_affix_rules,
-                    plan_class_hide, plan_rules, separator)
-from .sections import IDOL_PLACEMENT, doc_infos, place
+from .rules import (RULE_KEYS, ConfigError, Rule, RuleSpec, _check_keys, plan_affix_rules, plan_class_hide, plan_rules,
+                    released_defaults, separator)
+from .sections import IDOL_PLACEMENT, doc_infos, place, place_class_hide
 
 PARTS = {
     "personal": "Always show personal & variant affixes ([[affix_rule]])",
-    "bis": "BiS section: generic per-slot rules, switched off - the Best in slot tab fills them ([bis])",
-    "exalted": "Generic exalted rules, T8 first ([[exalted_rule]])",
-    "legendary": "Show all legendary items",
     "class_hide": "Class item hide rules (the chosen class's one enabled)",
+    "bis": "BiS section: generic per-slot rules, switched off - the Best in slot tab fills them ([bis])",
+    "exalted": "Generic exalted rules, T8 first ([[exalted_rule]]), and show all corrupted items ([starter] corrupted)",
+    "legendary": "Show all legendary items",
     "shatter": "Shatter section: rare-roll affixes + class affixes ([shatter])",
     "uniques": "Unique & set rules (the [[group]]s)",
     "leveling": "Leveling section (the Leveling tab's settings)",
     "hide_rest": "Hide everything else at the bottom",
 }
 LOOK_KEYS = RULE_KEYS - {"label", "lp_min", "lp_max", "ww_min", "ww_max"}
-EXALTED_KEYS = LOOK_KEYS | {"name", "min", "tier", "total", "uncorrupted"}
-STARTER_KEYS = {"header", "legendary", "hide_rest"}
+EXALTED_KEYS = LOOK_KEYS | {"name", "min", "tier", "total", "uncorrupted", "corrupted"}
+STARTER_KEYS = {"header", "legendary", "corrupted", "hide_rest"}
+CORRUPTED_DEFAULT = {"name": "SHOW ALL CORRUPTED ITEMS", "color": 11}   # configs from before v0.3.0 have no [starter] corrupted
 GEAR_TYPES = WEAPON_TYPES + OFFHAND_TYPES + ARMOUR_TYPES + JEWELRY_TYPES
 GEAR_TYPE_IDS = {TYPE_IDS[t] for t in GEAR_TYPES}
 # "altar" is obsolete (idol altars moved to the idol section) but still accepted: the packaged app
@@ -69,14 +70,16 @@ def plan_exalted(config: dict, affixes: list[dict]) -> list[Rule]:
         options = dict(entry)
         name = options.pop("name", None)
         n, tier, total = options.pop("min", 1), options.pop("tier", None), options.pop("total", None)
-        uncorrupted = options.pop("uncorrupted", False)
+        uncorrupted, corrupted = options.pop("uncorrupted", False), options.pop("corrupted", False)
         if not name:
             raise ConfigError(f"{where}: needs a name")
+        if uncorrupted and corrupted:
+            raise ConfigError(f"{where}: corrupted and uncorrupted exclude each other")
         if not 1 <= n <= 6 or (tier is not None and not 1 <= tier <= 8):
             raise ConfigError(f"{where}: min must be 1-6 and tier 1-8")
         rules.append(Rule(name=name, group="exalted", spec=RuleSpec(**options), unique_ids=None, rarity=None,
                           affix_ids=ids, affix_min=n, affix_tier=tier, affix_total=total,
-                          corruption="OnlyUncorrupted" if uncorrupted else None))
+                          corruption="OnlyUncorrupted" if uncorrupted else "OnlyCorrupted" if corrupted else None))
     return rules
 
 
@@ -168,17 +171,23 @@ def build_starter(config: dict, data: dict, options: dict) -> dict:
         affix_rules, _, affix_warnings = plan_affix_rules(config, data["affixes"])
         rules += affix_rules
         warnings += affix_warnings
+    if "class_hide" in parts:   # right below the always-show rules, where refreshing puts them too
+        table = {**config.get("class_hide", {}), "add": True, "enabled_for": [cls] if cls else []}
+        rules += plan_class_hide({**config, "class_hide": table})
     if "bis" in parts:
         rules += plan_bis(config, data, build, cls)
     exalted = plan_exalted(config, data["affixes"]) if "exalted" in parts else []
+    corrupted = scfg.get("corrupted", CORRUPTED_DEFAULT)
+    corrupted = {"name": CORRUPTED_DEFAULT["name"], **corrupted} if isinstance(corrupted, dict) else \
+        CORRUPTED_DEFAULT if corrupted is True else corrupted
+    if exalted and corrupted is not False:   # items that dropped corrupted, whatever their affixes (not uniques & co.)
+        exalted.append(_named_rule(corrupted, "[starter] corrupted", rarity="NORMAL MAGIC RARE EXALTED",
+                                   corruption="OnlyCorrupted"))
     legendary = (_named_rule(scfg.get("legendary", {"name": "SHOW ALL LEGENDARY ITEMS"}), "[starter] legendary",
                              rarity="LEGENDARY") if "legendary" in parts else None)
     if exalted or legendary:
         rules.append(separator(scfg.get("header", "------ EXALTED & LEGENDARY ------")))
         rules += exalted + ([legendary] if legendary else [])
-    if "class_hide" in parts:   # closes the section before the shatter one, where refreshing puts them too
-        table = {**config.get("class_hide", {}), "add": True, "enabled_for": [cls] if cls else []}
-        rules += plan_class_hide({**config, "class_hide": table})
     if "shatter" in parts:
         rules += plan_shatter(config, data, cls)
     if "uniques" in parts:
@@ -234,7 +243,7 @@ def refresh_generated(config: dict, data: dict, rules: list[dict]) -> dict:
         else:
             at = len(rest)
         out = rest[:at] + generated + rest[at:]
-    out, _ = insert_above_section(out, at, class_blocks)
+    out = out[:len(top)] + class_blocks + out[len(top):]   # right below the always-show rules: before every other rule
     new_rules = parse_rule_blocks(out)
 
     old = {r["name"]: r for r in rules if "raw" not in r and r.get("name", "").startswith(prefix)}
@@ -261,6 +270,12 @@ def class_hide_names(config: dict) -> dict[str, str]:
     prefix = config.get("filter", {}).get("rule_prefix", "")
     name = config.get("class_hide", {}).get("name", "Hide non-{class} class non-legendary items")
     return {f"{prefix}{name.replace('{class}', c)}": c for c in CLASSES}
+
+
+def class_hide_spot(config: dict, data: dict) -> dict:
+    """Names for sections.place_class_hide: {"top_names": the always-show rules, "hide_names": the class hide rules}."""
+    return {"top_names": [r.name for r in plan_affix_rules(config, data["affixes"])[0]],
+            "hide_names": list(class_hide_names(config))}
 
 
 def _catch_all(rule: dict) -> bool:
@@ -322,8 +337,7 @@ def add_missing_sections(config: dict, data: dict, template: dict, rules: list[d
 # user's edits apart from what the new version changed.
 
 TEMPLATE_PARTS = [p for p in PARTS if p != "leveling"]
-# Template rules earlier versions generated that this one doesn't (v0.1.0's BiS altar rule moved to the idol section;
-# the unique groups' old default rules, rules.UPDATED_GROUP_RULES, e.g. v0.2.0's two Weaver's Will brackets).
+# Template rules earlier versions generated that this one doesn't (v0.1.0's BiS altar rule moved to the idol section).
 LEGACY_TEMPLATE_RULES = {"BIS - Idol Altar (pick bases & affixes)"}
 STAMP = re.compile(r"<!-- New-filter template generated by Last Epoch Item Filter Editor (\S+) -->")
 
@@ -360,8 +374,7 @@ def write_generated_template(path: Path, doc: dict) -> None:
 
 def legacy_template_rules(config: dict, data: dict) -> dict[str, dict]:
     """LEGACY_TEMPLATE_RULES as their version generated them (rebuilt with this config and game
-    data, the way v0.1.0's plan_bis did) and the unique groups' rules as their old default rules
-    made them: a user's copy that differs in any way was changed."""
+    data, the way v0.1.0's plan_bis did): a user's copy that differs in any way was changed."""
     cfg = config.get("bis", {})
     spec = _look(cfg, BIS_KEYS, "[bis]")
     altar = [a["id"] for a in data["affixes"] if a["category"] == "Idol Altars" and not a["special"]]
@@ -369,19 +382,7 @@ def legacy_template_rules(config: dict, data: dict) -> dict[str, dict]:
                 spec=RuleSpec(**{**spec.__dict__, "enabled": spec.enabled and bool(altar)}), unique_ids=None,
                 rarity=None, item_types=["IDOL_ALTAR"], affix_ids=altar, affix_min=cfg.get("min", 1),
                 affix_tier=_tier(cfg.get("tier", 7)))
-    legacy = {rule.name: parse_rule_blocks([render_rule(rule)])[0]}
-    current = {r.name for r in plan_rules(config, data["uniques"]).rules}
-    for r in plan_rules(config, data["uniques"], upgrade=False).rules:
-        if r.group in UPDATED_GROUP_RULES and r.name not in current:
-            legacy[r.name] = parse_rule_blocks([render_rule(r)])[0]
-    return legacy
-
-
-def new_template_rules(config: dict, data: dict) -> set[str]:
-    """Template rules earlier versions didn't generate: the ones only the unique groups' new default
-    rules (UPDATED_GROUP_RULES) make, e.g. the three Weaver's Will brackets."""
-    old = {r.name for r in plan_rules(config, data["uniques"], upgrade=False).rules}
-    return {r.name for r in plan_rules(config, data["uniques"]).rules if r.group in UPDATED_GROUP_RULES and r.name not in old}
+    return {rule.name: parse_rule_blocks([render_rule(rule)])[0]}
 
 
 def ensure_template(path: Path, config: dict, data: dict) -> bool:
@@ -461,14 +462,16 @@ def sync_template(path: Path, config: dict, data: dict, backup_dir: Path | None 
         base = parse_filter(base_path.read_bytes().decode("utf-8-sig"))["rules"]
     else:
         # A template from before the stamp (v0.2.0 and older) has no copy as generated. Those
-        # versions generated the same rules as this one, but for rules since dropped or new: so this
-        # version's template less its new rules is the reference (a rule missing from the user's
-        # counts as removed), and the dropped rules count as generated ones.
+        # versions generated what this one does from the config with their defaults (released_defaults:
+        # e.g. two Weaver's Will rules, no corrupted ones), plus rules since dropped: that is the
+        # reference (a rule missing from the user's counts as removed), the dropped rules counting
+        # as generated ones.
         legacy = legacy_template_rules(config, data)   # as generated: only an identical copy counts as untouched
-        new = new_template_rules(config, data)
-        base = ([r for r in fresh["rules"] if r.get("name") not in new]
+        base = (make_template(released_defaults(config), data)["rules"]
                 + [legacy[r["name"]] for r in mine["rules"] if r.get("name") in legacy])
     rules, report = reconcile_template(base, mine["rules"], fresh["rules"])
+    spot = class_hide_spot(config, data)   # they moved to the top in v0.3.0 (refreshing puts them there anyway)
+    rules = place_class_hide(rules, set(spot["top_names"]), set(spot["hide_names"]))
     backup = None
     if backup_dir is not None:
         backup_dir.mkdir(parents=True, exist_ok=True)

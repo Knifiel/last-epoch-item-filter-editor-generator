@@ -46,3 +46,13 @@ def test_reorder_moves_generated_sections_back_and_leaves_the_rest():
     assert reorder_generated(out, {"bis": "BIS - ", "idols": "[I] ", "leveling": "[L] "}) == (out, [])
     custom = [rule("[I] Small idol"), rule("Mine")]                 # no spot for idols: left where they are
     assert reorder_generated(custom, {"idols": "[I] "}) == (custom, [])
+
+
+def test_reorder_puts_class_hide_rules_right_below_the_always_show_rules():
+    hide = ["[A] Hide non-Mage class non-legendary items", "[A] Hide non-Rogue class non-legendary items"]
+    rules = TEMPLATE[:5] + [rule(n) for n in hide] + TEMPLATE[5:]   # where v0.2.0 put them: after the exalted rules
+    out, moved = reorder_generated(rules, {}, top_names=["[A] ALWAYS SHOW"], hide_names=hide)
+    assert moved == ["class hide rules"] and names(out)[:3] == ["[A] ALWAYS SHOW", *hide]
+    assert [r for r in out if r["name"] not in hide] == [r for r in rules if r["name"] not in hide]
+    assert reorder_generated(out, {}, top_names=["[A] ALWAYS SHOW"], hide_names=hide) == (out, [])
+    assert names(reorder_generated(rules[1:], {}, top_names=["[A] ALWAYS SHOW"], hide_names=hide)[0])[:2] == hide

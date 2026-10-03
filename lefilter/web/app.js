@@ -646,8 +646,7 @@ const CLEANUPS = [
     "The generated rules for common and uncommon uniques below LP level 60 (random drops: no boss or quest uniques) at 0-2 LP. Those uniques then fall through to the rules below, usually the bottom hide rule."],
 ];
 
-/** Dialog: what each way of freeing rules would remove, with a button to do it (undo with Ctrl+Z). */
-/** The generated sections - BiS rules, idol and leveling sections - moved back to their places (undo with Ctrl+Z). */
+/** The generated sections - class hide rules, BiS rules, idol and leveling sections - moved back to their places (undo with Ctrl+Z). */
 async function reorderSections() {
   if (!S.doc) return;
   try {
@@ -661,6 +660,79 @@ async function reorderSections() {
   }
 }
 
+/** Where an affix is listed in the open filter's rules: [{rule, edit: [conditions it can go from], kept: [conditions
+ *  listing only it]}]. Emptying a condition's list would make it match any affix, so those keep it. */
+function affixUses(id) {
+  const out = [];
+  for (const r of S.doc.rules) {
+    if (r.raw) continue;
+    const conds = r.conditions.filter((c) => c.type === "AffixCondition" && !c.raw && c.affixes.includes(id));
+    if (conds.length) out.push({ rule: r, edit: conds.filter((c) => c.affixes.some((x) => x !== id)),
+      kept: conds.filter((c) => c.affixes.every((x) => x === id)) });
+  }
+  return out;
+}
+
+/** Dialog: pick an affix the filter's rules list and take it out of all of them at once (undo with Ctrl+Z). */
+function removeAffixEverywhere(selected = null) {
+  if (!S.doc) return;
+  const dlg = $("#dlg");
+  const counts = new Map();
+  for (const r of S.doc.rules) {
+    if (r.raw) continue;
+    const ids = new Set(r.conditions.filter((c) => c.type === "AffixCondition" && !c.raw).flatMap((c) => c.affixes));
+    for (const id of ids) counts.set(id, (counts.get(id) || 0) + 1);
+  }
+  const ruleLabel = (r) => r.name || `rule ${S.doc.rules.indexOf(r) + 1}`;
+  const close = h("div", { class: "row" }, h("button", { class: "primary", onclick: () => dlg.close() }, "Close"));
+  const intro = h("p", { class: "hint" }, "Takes an affix out of every rule's affix condition. Undo with Ctrl+Z. The Leveling, Best in slot "
+    + "and Idols tabs put it back when applied again: leave it out there too (Leveling: untick it; Best in slot / Idols: un-pick it).");
+  if (selected !== null && counts.has(selected)) {
+    const uses = affixUses(selected);
+    const editable = uses.filter((u) => u.edit.length);
+    const lowers = (c) => c.min_on_same_item > c.affixes.filter((x) => x !== selected).length;
+    dlg.replaceChildren(h("h3", {}, "Remove an affix from every rule"), intro,
+      h("div", { class: "row" }, h("b", {}, affixName(selected)), affixPill(selected), h("span", { class: "spacer" }),
+        h("button", { onclick: () => removeAffixEverywhere() }, "← Other affix")),
+      h("ul", { class: "gen-rules" }, uses.map((u) => h("li", {}, ruleLabel(u.rule),
+        u.kept.length ? h("span", { class: "hint" }, " - the only affix it lists: kept (without it the rule would take any affix)") : null,
+        u.edit.some(lowers) ? h("span", { class: "hint" }, " - asks for more affixes than it would have left: lowered to what's left") : null))),
+      h("div", { class: "row" }, h("button", { class: "danger", disabled: !editable.length, onclick: () => {
+        let n = 0;
+        mutate(() => {
+          for (const u of affixUses(selected)) {
+            if (!u.edit.length) continue;
+            n++;
+            for (const c of u.edit) {
+              c.affixes = c.affixes.filter((x) => x !== selected);
+              c.min_on_same_item = Math.min(c.min_on_same_item, c.affixes.length);
+            }
+          }
+        }, { editor: true });
+        toast(`${affixName(selected)} removed from ${n} rule${n === 1 ? "" : "s"}. Undo with Ctrl+Z; save to keep it.`);
+        removeAffixEverywhere();
+      } }, editable.length ? `Remove from ${editable.length} rule${editable.length > 1 ? "s" : ""}` : "No rule it can be removed from")),
+      close);
+  } else {
+    const search = h("input", { type: "search", placeholder: "Filter affixes…", style: { width: "100%" } });
+    const list = h("div", { class: "remove-affix-list" });
+    const items = [...counts].map(([id, n]) => ({ id, n, name: affixName(id) })).sort((a, b) => a.name.localeCompare(b.name));
+    const draw = () => {
+      const q = search.value.trim().toLowerCase();
+      list.replaceChildren(...items.filter((x) => !q || x.name.toLowerCase().includes(q)).map((x) =>
+        h("button", { class: "affix-row", onclick: () => removeAffixEverywhere(x.id) }, x.name, affixPill(x.id),
+          h("span", { class: "hint" }, ` ${x.n} rule${x.n > 1 ? "s" : ""}`))));
+      if (!list.children.length) list.append(h("p", { class: "hint" }, items.length ? "No affix matches." : "No rule lists any affix."));
+    };
+    search.oninput = draw;
+    draw();
+    dlg.replaceChildren(h("h3", {}, "Remove an affix from every rule"), intro, search, list, close);
+    setTimeout(() => search.focus(), 0);
+  }
+  if (!dlg.open) dlg.showModal();
+}
+
+/** Dialog: what each way of freeing rules would remove, with a button to do it (undo with Ctrl+Z). */
 async function freeUpRules() {
   if (!S.doc) return;
   const dlg = $("#dlg");
@@ -2240,7 +2312,7 @@ function renderIdolEditor() {
     h("div", { class: "idol-head" }, idolShape(k.width, k.height, 18, true),
       h("div", {}, h("h2", { style: { margin: 0 } }, `${k.label} idol`),
         h("div", { class: "hint" }, `${k.base_names.join(", ")} · ${k.width} wide × ${k.height} tall · ${k.pool.length} possible affixes`),
-        k.heretical_names.length ? h("div", { class: "hint" }, `The rule also covers its crafted heretical version: ${k.heretical_names.join(", ")}`) : null)),
+        k.heretical_names.length ? h("div", { class: "hint" }, `The rule also covers its crafted heretical version, ${k.heretical_names.join(", ")}: pick its Enchanted affixes below (only heretical idols roll them)`) : null)),
     h("div", { class: "row" }, "Show it when it has",
       h("div", { class: "seg" }, [1, 2].map((n) => h("button", {
         class: Math.min(pick.min, Math.max(1, pick.affixes.length)) === n ? "on" : "",
@@ -2251,16 +2323,29 @@ function renderIdolEditor() {
       h("button", { disabled: !pick.affixes.length, onclick: () => save({ ...pick, affixes: [] }) }, "Clear picks"),
       (() => {   // the copy runs from the button, not on every change of the list
         const to = h("select", { disabled: !pick.affixes.length }, h("option", { value: "" }, "Copy picks to…"),
-          copyTargets.map((x) => h("option", { value: x.key }, x.label)));
-        return [to, h("button", { disabled: !pick.affixes.length, onclick: () => {
-          const target = idolKind(to.value);
-          if (!target) { toast("Pick the idol kind to copy to first."); return; }
+          copyTargets.map((x) => h("option", { value: x.key }, x.label)),
+          h("option", { value: "*" }, "every other idol kind"));
+        // each target takes the picks that can roll on it (class affixes only reach that class's idols)
+        const copyTo = (target) => {
           const pool = new Set(target.pool.map((a) => a.id));
           const prev = o.picks[target.key] || { affixes: [], min: pick.min };
           const add = pick.affixes.filter((id) => pool.has(id));
           o.picks[target.key] = { ...prev, affixes: [...new Set([...prev.affixes, ...add])] };
           if (!o.picks[target.key].affixes.length) delete o.picks[target.key];
-          toast(`${add.length} of ${pick.affixes.length} picks can roll on ${target.label} and were added there`);
+          return add.length;
+        };
+        return [to, h("button", { disabled: !pick.affixes.length, onclick: () => {
+          if (to.value === "*") {
+            const reached = copyTargets.filter((t) => copyTo(t) > 0);
+            toast(reached.length ? `Picks copied to ${reached.length} idol kinds, each taking the ones that can roll on it`
+              : "None of the picks can roll on another idol kind");
+            idolChanged();
+            return;
+          }
+          const target = idolKind(to.value);
+          if (!target) { toast("Pick the idol kind to copy to first."); return; }
+          const n = copyTo(target);
+          toast(`${n} of ${pick.affixes.length} picks can roll on ${target.label} and were added there`);
           idolChanged();
         } }, "Copy")];
       })()),
@@ -2806,6 +2891,7 @@ function wire() {
   $("#btn-down").onclick = () => stepRule(1);
   $("#btn-refresh").onclick = refreshGenerated;
   $("#btn-free").onclick = freeUpRules;
+  $("#btn-remove-affix").onclick = () => removeAffixEverywhere();
   $("#btn-complete").onclick = addMissingSections;
   $("#btn-reorder").onclick = reorderSections;
   $("#btn-delete").onclick = deleteDialog;

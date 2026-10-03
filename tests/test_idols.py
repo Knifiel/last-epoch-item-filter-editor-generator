@@ -47,6 +47,8 @@ AFFIXES = [
     affix(840, "Crit Avoidance and Crit Chance", (25,), cls=1, special=5, category="Weaver Idols"),
     affix(1070, "All Resistances for you and your Minions", range(25, 34), special=6, category="Corrupted"),
     affix(900, "Enchanted thing", (29,), special=4, category="Enchanted Idols"),
+    affix(901, "Enchanted Mage thing", (29,), cls=4, special=4, category="Enchanted Idols"),   # Mage only
+    affix(1071, "Corrupted Ornate thing", (31,), special=6, category="Corrupted"),
     affix(30, "Increased Physical Damage", (16,), category="Damage Type"),
     affix(1088, "Maximum Idols Equipped", (41,), category="Idol Altars"),
     affix(1104, "Maximum Idols Equipped", (41,), special=6, category="Idol Altars"),
@@ -79,11 +81,13 @@ def test_pools_follow_type_and_class_restrictions():
                                        (1070, "Corrupted (corrupted idols only)")]
     assert pool("IDOL_1x1_ETERRA/weaver") == [(110, "General Idols"), (111, "General Idols"), (840, "Weaver Idols"),
                                               (1070, "Corrupted (corrupted idols only)")]
+    # a class idol with a heretical version: its Enchanted affixes too (class restrictions apply)
     assert pool("IDOL_3x1/Sentinel") == [(110, "General Idols"), (196, "Sentinel Idols"),
-                                         (1070, "Corrupted (corrupted idols only)")]
-    assert [i for i, _ in pool("IDOL_3x1/Mage")] == [110, 174, 1070]
-    # Omen: own size plus the 4x1 / 1x4 / 2x2 affixes
-    assert sorted(i for i, _ in pool("IDOL_3x1/Sentinel/omen")) == [105, 110, 196, 197, 1070]
+                                         (900, "Enchanted (heretical idols only)"), (1070, "Corrupted (corrupted idols only)")]
+    assert [i for i, _ in pool("IDOL_3x1/Mage")] == [110, 174, 1070]                  # no heretical Mage base here
+    # Omen: own size plus the 4x1 / 1x4 / 2x2 affixes, corrupted ones included; no Enchanted ones
+    assert sorted(i for i, _ in pool("IDOL_3x1/Sentinel/omen")) == [105, 110, 196, 197, 1070, 1071]
+    assert 1071 not in [i for i, _ in pool("IDOL_3x1/Sentinel")] and 1071 in [i for i, _ in pool("IDOL_4x1/Sentinel")]
 
 
 def test_plan_rules_per_picked_kind():

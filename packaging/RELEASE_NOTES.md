@@ -48,13 +48,26 @@ BiS items, shattering and more - straight from your own game installation.
 - **New is a blank slate by default**: the BiS rules, the leveling and the idol section are
   opt-in (each tab can apply its section later). *Save as* also sets the in-game name (the
   game lists filters by it, not by the file name).
+- **Corrupted items**: the template gets *SHOW ALL CORRUPTED ITEMS* (switched on: normal to
+  exalted items that dropped corrupted, for builds after corrupted affixes) and *EXALTED -
+  CORRUPTED DOUBLE T7* below the exalted rules, which stay for uncorrupted items.
+- **Class hide rules at the top**, right below the always-show rule, so other classes' items
+  stay hidden from every rule below - corrupted, BiS, shatter and leveling ones included.
 - **Idol section after the shatter section**: a new idol section now goes right before the
-  uniques instead of at the top. **Reorder generated sections** (Rules tab) moves the BiS,
-  idol and leveling sections of an existing filter back to their places.
+  uniques instead of at the top. **Reorder generated sections** (Rules tab) moves the class
+  hide rules, BiS, idol and leveling sections of an existing filter back to their places.
+- **Idols: heretical idols' Enchanted affixes** are offered on each class idol (its rule covers
+  the heretical version), and **Omen idols list all their corrupted affixes** - those of the
+  4x1, 1x4 and 2x2 sizes too (30 on a Grand Omen idol, not 10).
+- **Idols: copy picks to every other idol kind** at once; each takes the ones that can roll on it.
+- **Remove an affix…** (Rules tab): take one affix out of every rule at once.
 - **Weaver's Will uniques in three brackets**: 19+ WW (emphasized, in red like the best LP
-  uniques), 15-18 WW (emphasized) and 0-14 WW, instead of 17+ and 0-16. A `config.toml` from an
-  earlier version gets them too unless you changed its Weaver rules; existing filters get them
-  with *↻ [A] rules*.
+  uniques), 15-18 WW (emphasized) and 0-14 WW, instead of 17+ and 0-16.
+- **Upgrading from v0.2.0**: a `config.toml` from an earlier version gets the new Weaver brackets
+  and corrupted rules too, unless you changed those settings; the new-filter template updates
+  itself (see above). Existing filters: *↻ [A] rules* gives them the Weaver brackets and moves
+  the class hide rules up, *Add missing sections…* doesn't add rules to a section the filter
+  already has - copy the two corrupted rules from a new filter if you want them.
 - **Add missing sections…** (Rules tab): gives a filter that didn't start from *New* - such as
   the uniques-only one `build --standalone` writes, which the editor now points out - the
   template's BiS, exalted and legendary, class hide, shatter and hide-everything rules.

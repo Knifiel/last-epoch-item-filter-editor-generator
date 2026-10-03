@@ -205,17 +205,6 @@ def test_class_condition_renders_like_the_game():
     assert r["type"] == "HIDE" and not r["enabled"]
 
 
-def test_insert_above_section_closes_the_previous_section():
-    from lefilter.filterxml import insert_above_section
-    blocks = [render_rule(rule(n)) for n in ("Single T7",)] + [render_rule(separator("---- UNIQUE ITEM RULES ----"))] \
-        + [render_rule(rule(n)) for n in ("legendary", "[A] gen")]
-    out, at = insert_above_section(blocks, 3, [render_rule(rule("[A] hide"))])
-    assert [BaseFilter.rule_name(b) for b in out] == ["Single T7", "[A] hide", "---- UNIQUE ITEM RULES ----", "legendary", "[A] gen"]
-    assert at == 1
-    out, at = insert_above_section(blocks[:1], 1, [render_rule(rule("[A] hide"))])   # no separator above: in place
-    assert [BaseFilter.rule_name(b) for b in out] == ["Single T7", "[A] hide"] and at == 1
-
-
 def test_elsewhere_rules_never_anchor_the_block(tmp_path):
     base = write_base(tmp_path, [render_rule(rule("[A] Hide non-Mage")), render_rule(separator("---- U ----")),
                                  render_rule(rule("[A] old"))])

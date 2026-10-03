@@ -5,9 +5,12 @@ in-game rule list, i.e. the highest-priority rule (the first match wins).
 """
 from __future__ import annotations
 
+import copy
 import difflib
 import re
+import tomllib
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .gamedata import CLASS_IDOL_TYPES, CLASSES, COMMON_IDOL_TYPES, RARITIES, TYPE_IDS
 
@@ -24,14 +27,57 @@ BASE_TYPE_ALIASES = {"IDOLS": COMMON_IDOL_TYPES + CLASS_IDOL_TYPES}
 SLOT_KEYS = RULE_KEYS - {"label"} | {"name"}
 AFFIX_RULE_KEYS = RULE_KEYS - {"label", "lp_min", "lp_max", "ww_min", "ww_max"} | {"name", "affix_categories"}
 CLASS_HIDE_KEYS = {"add", "name", "rarity", "enabled_for"}
-# Group rules this version's config.toml changed: {group name: (as earlier versions had them, as
-# this one has them)}. The packaged app's config.toml is a copy from its first run, so a group
-# still having the old default gets the new one; a group the user changed stays theirs.
+# Defaults this version's config.toml changed, as (earlier versions' default, this version's): the
+# rules of [[group]]s by name, and the [[exalted_rule]] list. The packaged app's config.toml is a
+# copy from its first run: read_config gives a setting still at the old default the new one (one
+# the user changed stays theirs); released_defaults does the reverse, rebuilding what earlier
+# versions generated from a config (see starter.sync_template).
 UPDATED_GROUP_RULES = {
     "WEAVER": ([{"ww_min": 17, "color": 2, "emphasized": True}, {"ww_max": 16, "color": 2}],      # v0.2.0
                [{"ww_min": 19, "color": 7, "emphasized": True}, {"ww_min": 15, "ww_max": 18, "color": 2, "emphasized": True},
                 {"ww_max": 14, "color": 2}]),
 }
+_EXALTED_V020 = [
+    {"name": "ALL T8 ITEMS", "min": 1, "tier": 8, "color": 10, "emphasized": True, "beam_size": "LARGE", "beam_color": 13},
+    {"name": "EXALTED - DOUBLE T7", "min": 2, "tier": 7, "uncorrupted": True, "color": 7, "emphasized": True},
+    {"name": "EXALTED - T7 + T6", "min": 2, "tier": 6, "total": 13, "uncorrupted": True, "color": 7, "enabled": False},
+    {"name": "EXALTED - SINGLE T7", "min": 1, "tier": 7, "uncorrupted": True, "color": 8},
+]
+UPDATED_EXALTED_RULES = (_EXALTED_V020, _EXALTED_V020 + [
+    {"name": "EXALTED - CORRUPTED DOUBLE T7", "min": 2, "tier": 7, "corrupted": True, "color": 11, "emphasized": True}])
+
+
+def _swap_defaults(config: dict, to_new: bool) -> dict:
+    def swap(old, new, current):
+        if to_new:
+            return new if current == old else current
+        return old if current in (old, new) else current
+
+    out = copy.deepcopy(config)
+    for g in out.get("group", []):
+        if g.get("name") in UPDATED_GROUP_RULES and "rules" in g:
+            g["rules"] = swap(*UPDATED_GROUP_RULES[g["name"]], g["rules"])
+    if "exalted_rule" in out:
+        out["exalted_rule"] = swap(*UPDATED_EXALTED_RULES, out["exalted_rule"])
+    return out
+
+
+def upgrade_config(config: dict) -> dict:
+    """Settings still at an earlier version's default get this version's (UPDATED_*)."""
+    return _swap_defaults(config, True)
+
+
+def released_defaults(config: dict) -> dict:
+    """The config as earlier versions used it: UPDATED_* settings at either default get the old
+    one, and no [starter] corrupted rule (they had none)."""
+    out = _swap_defaults(config, False)
+    out["starter"] = {**out.get("starter", {}), "corrupted": False}
+    return out
+
+
+def read_config(path: Path) -> dict:
+    """config.toml, upgraded (upgrade_config)."""
+    return upgrade_config(tomllib.loads(Path(path).read_text(encoding="utf-8")))
 
 
 class ConfigError(Exception):
@@ -184,8 +230,7 @@ def _check_keys(table: dict, allowed: set, where: str) -> None:
         raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)}; allowed: {sorted(allowed)}")
 
 
-def parse_groups(config: dict, upgrade: bool = True) -> list[Group]:
-    """The [[group]]s; upgrade=False keeps old default rules (UPDATED_GROUP_RULES) as they are."""
+def parse_groups(config: dict) -> list[Group]:
     groups = []
     for i, g in enumerate(config.get("group", [])):
         where = f"[[group]] #{i + 1} ({g.get('name', '?')})"
@@ -198,9 +243,8 @@ def parse_groups(config: dict, upgrade: bool = True) -> list[Group]:
         bad = [t for t in g.get("base_types", []) if t not in TYPE_IDS and t not in BASE_TYPE_ALIASES]
         if bad:
             raise ConfigError(f"{where}: unknown base_types {bad}; use item types like RING or {', '.join(BASE_TYPE_ALIASES)}")
-        old, new = UPDATED_GROUP_RULES.get(g["name"], (None, None)) if upgrade else (None, None)
         rules = []
-        for j, r in enumerate(new if g.get("rules") == old else g.get("rules", [])):
+        for j, r in enumerate(g.get("rules", [])):
             _check_keys(r, RULE_KEYS, f"{where} rule #{j + 1}")
             spec = RuleSpec(**r)
             if spec.action not in ("show", "hide"):
@@ -264,13 +308,13 @@ class UniqueIndex:
         return out
 
 
-def plan_rules(config: dict, uniques: list[dict], upgrade: bool = True) -> Plan:
+def plan_rules(config: dict, uniques: list[dict]) -> Plan:
     thresholds = {k: float(v) for k, v in config.get("rarity", {}).items()}
     missing = set(RARITY_TIERS) - set(thresholds)
     if missing:
         raise ConfigError(f"[rarity] missing thresholds: {sorted(missing)}")
     prefix = config.get("filter", {}).get("rule_prefix", "")
-    groups = parse_groups(config, upgrade)
+    groups = parse_groups(config)
     index = UniqueIndex(uniques)
     cat = {u["id"]: categorize(u, thresholds) for u in uniques}
 

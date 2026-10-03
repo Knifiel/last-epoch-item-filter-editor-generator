@@ -4,15 +4,16 @@ Idol kinds, from the game data (sizes are width x height, as the game names them
 - all-class idols: 1x1 Small (Eterran), 1x1 Minor (Lagonian), 2x1 Humble, 1x2 Stout;
 - their Weaver versions ("enhanced"): the same pool plus the Weaver Idol affixes;
 - class idols: 3x1 Grand, 1x3 Large, 4x1 Ornate, 1x4 Huge, 2x2 Adorned - one base per class;
-- Omen idols: class 3x1 / 1x3 bases that also roll the 4x1, 1x4 and 2x2 affixes.
+- Omen idols: class 3x1 / 1x3 bases that also roll the 4x1, 1x4 and 2x2 affixes (corrupted ones too).
 Heretical (enchanted) idols are crafted from class idols and never drop, but they are
 separate bases: each class idol's rule also lists its heretical base, so one thrown out
-of the inventory is shown like its normal version.
+of the inventory is shown like its normal version, and its pool also offers the Enchanted
+Idol affixes (only heretical idols carry them).
 
 An affix is in a kind's pool when it can roll on the idol's type (Omen: or on 4x1/1x4/2x2)
 and its class restriction allows the idol: a class idol needs that class's bit, an
-all-class idol the NonSpecific bit (no restriction counts for both). Corrupted affixes are
-listed as their own group: only corrupted idols carry them.
+all-class idol the NonSpecific bit (no restriction counts for both). Corrupted and Enchanted
+affixes are listed as groups of their own: only corrupted / heretical idols carry them.
 
 Idol altars get a rule of their own: the preferred altar bases with any of the preferred
 altar affixes (either side may be left open), with a beam; below it, optionally, a plainer
@@ -31,7 +32,7 @@ from .rules import RULE_KEYS, ConfigError, Rule, RuleSpec, _check_keys
 
 IDOL_TYPES = COMMON_IDOL_TYPES + CLASS_IDOL_TYPES
 ALTAR_TYPE = "IDOL_ALTAR"
-WEAVER_SPECIAL, CORRUPTED_SPECIAL = 5, 6     # AffixList specialAffixType
+ENCHANTED_SPECIAL, WEAVER_SPECIAL, CORRUPTED_SPECIAL = 4, 5, 6     # AffixList specialAffixType
 STYLE_DEFAULTS = {
     "both": {"color": 15, "emphasized": True},   # rules asking for 2 wanted affixes
     "single": {"color": 15},                     # rules asking for 1
@@ -67,7 +68,7 @@ def _size(type_name: str) -> tuple[int, int]:
     return int(w), int(h)
 
 
-def _pool(type_name: str, character_class: str, variant: str, affixes: list[dict]) -> list[dict]:
+def _pool(type_name: str, character_class: str, variant: str, affixes: list[dict], heretical: bool = False) -> list[dict]:
     own = TYPE_IDS[type_name]
     types = {own} | ({TYPE_IDS[t] for t in OMEN_EXTRA_TYPES} if variant == "omen" else set())
     allowed = AFFIX_CLASS_BITS[character_class] if character_class else AFFIX_NONSPECIFIC
@@ -78,12 +79,14 @@ def _pool(type_name: str, character_class: str, variant: str, affixes: list[dict
             group = a["category"]
         elif a["special"] == WEAVER_SPECIAL and variant == "weaver" and own in rolls:
             group = "Weaver Idols"
-        elif a["special"] == CORRUPTED_SPECIAL and own in rolls:
+        elif a["special"] == ENCHANTED_SPECIAL and heretical and own in rolls and (not a["class"] or a["class"] & allowed):
+            group = "Enchanted (heretical idols only)"
+        elif a["special"] == CORRUPTED_SPECIAL and rolls & types:
             group = "Corrupted (corrupted idols only)"
         else:
             continue
         out.append({"id": a["id"], "name": a["name"], "group": group})
-    order = {"General Idols": 0, "Weaver Idols": 2}
+    order = {"General Idols": 0, "Weaver Idols": 2, "Enchanted (heretical idols only)": 2}
     return sorted(out, key=lambda a: (order.get(a["group"], 3 if a["group"].startswith("Corrupted") else 1),
                                       a["group"], a["name"]))
 
@@ -101,7 +104,7 @@ def idol_kinds(data: dict) -> list[IdolKind]:
             key="/".join(x for x in (type_name, cls, variant) if x), type=type_name, type_id=TYPE_IDS[type_name],
             width=w, height=h, character_class=cls, variant=variant, label=label,
             subtypes=[s["id"] for s in subs], base_names=[s["name"] for s in subs],
-            pool=_pool(type_name, cls, variant, data["affixes"]),
+            pool=_pool(type_name, cls, variant, data["affixes"], bool(heretical)),
             heretical_subtypes=[s["id"] for s in heretical], heretical_names=[s["name"] for s in heretical]))
 
     for variant in ("", "weaver"):

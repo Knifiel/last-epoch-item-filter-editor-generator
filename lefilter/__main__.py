@@ -6,13 +6,12 @@ import json
 import re
 import shutil
 import sys
-import tomllib
 from datetime import datetime
 from pathlib import Path
 
 from . import filterxml
 from .extract import DATA_VERSION, ExtractError, extract
-from .filterxml import (BaseFilter, FilterHeader, assemble, insert_above_section, merge, read_filter, render_rule,
+from .filterxml import (BaseFilter, FilterHeader, assemble, merge, read_filter, render_rule,
                         write_filter)
 from .game import DATA_FOLDER, GameNotFound, find_filters_dir, find_game
 from .paths import (CACHE_DIR, CONFIG_FILE, DATA_DIR, FROZEN, OUT_DIR, TEMPLATE_FILE, USER_DIR, prepare_user_dir,
@@ -21,7 +20,7 @@ from .leveling import LevelingPlan, parse_options, plan_leveling
 from .sections import RuleInfo, place
 from .starter import describe_template_update, sync_template
 from .report import build_report, histogram_markdown, leveling_markdown
-from .rules import ConfigError, Rule, RuleSpec, plan_affix_rules, plan_class_hide, plan_rules
+from .rules import ConfigError, Rule, RuleSpec, plan_affix_rules, plan_class_hide, plan_rules, read_config
 from .tools import ToolError
 
 DATA_FILE = DATA_DIR / "uniques.json"
@@ -163,14 +162,14 @@ def cmd_extract(args) -> None:
 
 def cmd_stats(args) -> None:
     data = _load_data()
-    config = tomllib.loads(Path(args.config).read_text(encoding="utf-8"))
+    config = read_config(args.config)
     thresholds = {k: float(v) for k, v in config["rarity"].items()}
     print(f"Game version {data['game_version']}, {len(data['uniques'])} uniques\n")
     print(histogram_markdown(data["uniques"], thresholds))
 
 
 def cmd_build(args) -> None:
-    config = tomllib.loads(Path(args.config).read_text(encoding="utf-8"))
+    config = read_config(args.config)
     data = _data_for_build(args)
     plan = plan_rules(config, data["uniques"])
     fcfg, mcfg = config.get("filter", {}), config.get("template", {})
@@ -196,8 +195,8 @@ def cmd_build(args) -> None:
                               description=(MARKER_RE.sub("", base.header.description) + " " + marker).strip(),
                               version=data["game_version"] or base.header.version)
         kept_names = [BaseFilter.rule_name(b) for b in result.blocks if b not in generated and b not in top]
-        # Class hide rules close the section before the generated block's (in the template: after the exalted rules).
-        blocks, _ = insert_above_section(result.blocks, result.insert_at, class_blocks)
+        # Class hide rules right below the always-show rules: they keep other classes' items out of every rule below.
+        blocks = result.blocks[:len(top)] + class_blocks + result.blocks[len(top):]
         merge_info = (f"Built from `{base_path.name}`: kept {len(kept_names)} of its rules, "
                       f"replaced {len(result.removed)}, left out {len(result.left_out)}; "
                       f"generated block starts at position {result.insert_at + len(class_blocks) + 1} from the top.")
@@ -260,7 +259,7 @@ def cmd_build(args) -> None:
 
 
 def cmd_leveling(args) -> None:
-    config = tomllib.loads(Path(args.config).read_text(encoding="utf-8"))
+    config = read_config(args.config)
     data = _load_data()
     if "bases" not in data:
         sys.exit(f"{DATA_FILE.name} predates base-item data - run `python -m lefilter extract` first")
@@ -272,7 +271,7 @@ def cmd_leveling(args) -> None:
 
 def cmd_ui(args) -> None:
     from .ui import Api, serve
-    tomllib.loads(Path(args.config).read_text(encoding="utf-8"))   # fail early on a broken config
+    read_config(args.config)   # fail early on a broken config
     data = _data_for_build(args)
     serve(Api(data, Path(args.config), OUT_DIR, CACHE_DIR / "backups", TEMPLATE_FILE, DATA_DIR / "filter_icons",
               DATA_DIR / "lang"), args.port, not args.no_browser)

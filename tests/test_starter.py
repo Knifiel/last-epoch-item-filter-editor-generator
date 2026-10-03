@@ -5,6 +5,7 @@ import pytest
 from lefilter.filterdoc import new_rule, parse_rule_blocks
 from lefilter.filterxml import render_rule
 from lefilter.matcher import Context, evaluate
+from lefilter.gamedata import CLASSES
 from lefilter.rules import ConfigError, plan_rules
 from lefilter.starter import build_starter, gear_affix_ids, plan_exalted, refresh_generated
 
@@ -80,10 +81,19 @@ def test_starter_parts_in_order_with_class_enabled():
     doc = build_starter(CONFIG, DATA, {"name": "Sentinel", "character_class": "Sentinel",
                                        "parts": ["personal", "exalted", "legendary", "class_hide", "uniques", "hide_rest"]})
     names = [(r["name"], r["enabled"]) for r in doc["rules"]]
-    assert names[:6] == [("[A] ALWAYS SHOW - PERSONAL", True), ("------ EXALTED & LEGENDARY ------", False),
-                         ("DOUBLE T7", True), ("T7 + T6", True), ("SINGLE T7", True), ("LEGENDARY", True)]
-    hides = [n for n in names if n[0].startswith("[A] Hide non-")]
+    hides = names[1:6]                     # right below the always-show rule: before every other rule
+    assert [n for n, _ in hides] == [f"[A] Hide non-{c} class non-legendary items" for c in CLASSES]
     assert hides[2] == ("[A] Hide non-Sentinel class non-legendary items", True)
+    assert names[:1] + names[6:12] == [("[A] ALWAYS SHOW - PERSONAL", True), ("------ EXALTED & LEGENDARY ------", False),
+                                        ("DOUBLE T7", True), ("T7 + T6", True), ("SINGLE T7", True),
+                                        ("SHOW ALL CORRUPTED ITEMS", True), ("LEGENDARY", True)]
+    corrupted = doc["rules"][10]["conditions"]
+    assert {c["type"]: c for c in corrupted}["CorruptionCondition"]["corruption"] == "OnlyCorrupted"
+    assert {c["type"]: c for c in corrupted}["RarityCondition"]["rarity"] == ["NORMAL", "MAGIC", "RARE", "EXALTED"]
+    off = build_starter({**CONFIG, "starter": {**CONFIG["starter"], "corrupted": False}}, DATA, {"parts": ["exalted"]})
+    assert "SHOW ALL CORRUPTED ITEMS" not in [r["name"] for r in off["rules"]]
+    recoloured = build_starter({**CONFIG, "starter": {"corrupted": {"color": 4}}}, DATA, {"parts": ["exalted"]})
+    assert {r["name"]: r["color"] for r in recoloured["rules"]}["SHOW ALL CORRUPTED ITEMS"] == 4
     assert sum(on for _, on in hides) == 1
     assert names[-1] == ("HIDE REST", True) and doc["rules"][-1]["type"] == "HIDE" and not doc["rules"][-1]["conditions"]
     assert doc["header"]["name"] == "Sentinel" and doc["header"]["version"] == "1.5"
@@ -118,9 +128,9 @@ def test_refresh_into_a_filter_without_generated_rules():
              new_rule("bottom", type="HIDE")]
     names = [r["name"] for r in refresh_generated(CONFIG, DATA, rules)["rules"]]
     assert names[0] == "[A] ALWAYS SHOW - PERSONAL"
+    assert names[1:7] == [f"[A] Hide non-{c} class non-legendary items"
+                          for c in ("Primalist", "Mage", "Sentinel", "Acolyte", "Rogue")] + ["mine"]
     sep = names.index("------ UNIQUE ITEMS ------")
-    assert names[sep - 5:sep] == [f"[A] Hide non-{c} class non-legendary items"
-                                  for c in ("Primalist", "Mage", "Sentinel", "Acolyte", "Rogue")]
     assert names[sep + 1] == "[A] --- UNIQUES ---" and names[-2:] == ["legendary", "bottom"]
 
 
@@ -353,24 +363,31 @@ def test_an_edited_legacy_placeholder_is_kept(tmp_path, monkeypatch):
         r["name"] for r in parse_filter(path.read_bytes().decode("utf-8-sig"))["rules"]]
 
 
-def test_first_update_swaps_the_old_weaver_brackets_unless_edited(tmp_path, monkeypatch):
-    from lefilter import rules, starter
+def test_first_update_of_a_v020_template_gets_this_versions_defaults(tmp_path, monkeypatch):
+    from lefilter import starter
     from lefilter.filterdoc import parse_filter, render_filter
     from lefilter.filterxml import write_filter
-    old, _ = rules.UPDATED_GROUP_RULES["WEAVER"]
-    config = {**FULL_CONFIG, "group": FULL_CONFIG["group"] + [{"name": "WEAVER", "categories": ["weaver"], "rules": old}]}
+    from lefilter.rules import UPDATED_EXALTED_RULES, UPDATED_GROUP_RULES, released_defaults
+    _, new = UPDATED_GROUP_RULES["WEAVER"]
+    config = {**FULL_CONFIG, "exalted_rule": UPDATED_EXALTED_RULES[1],
+              "group": FULL_CONFIG["group"] + [{"name": "WEAVER", "categories": ["weaver"], "rules": new}]}
     data = {**FULL, "uniques": FULL["uniques"] + [{**unique(9, "Woven"), "weavers_will": True}]}
     path = tmp_path / "templates" / "New filter.xml"
-    with monkeypatch.context() as m:
-        m.setattr(rules, "UPDATED_GROUP_RULES", {})
-        doc = make_template(config, data)                   # what v0.2.0 wrote from its config.toml copy
+    doc = make_template(released_defaults(config), data)   # what v0.2.0 wrote: two Weaver brackets, no corrupted rules...
+    hides = [r for r in doc["rules"] if r["name"].startswith("[A] Hide non-")]
+    rest = [r for r in doc["rules"] if r not in hides]
+    at = next(i for i, r in enumerate(rest) if "SHATTER" in r["name"])
+    doc["rules"] = rest[:at] + hides + rest[at:]           # ...and the class hide rules above the shatter section
     by = {r["name"]: r for r in doc["rules"]}
-    assert set(by) >= {"[A] WEAVER - 17+ WW", "[A] WEAVER - 0-16 WW"}
+    assert "[A] WEAVER - 17+ WW" in by and "SHOW ALL CORRUPTED ITEMS" not in by
     by["[A] WEAVER - 0-16 WW"]["color"] = 5                 # the user recoloured one
     write_filter(path, render_filter(doc))
     monkeypatch.setattr(starter, "__version__", "0.3.0")
     res = starter.sync_template(path, config, data, tmp_path / "backups")
     names = [r["name"] for r in parse_filter(path.read_bytes().decode("utf-8-sig"))["rules"]]
-    weaver = [n for n in names if n.startswith("[A] WEAVER")]
-    assert weaver == ["[A] WEAVER - 19+ WW", "[A] WEAVER - 15-18 WW", "[A] WEAVER - 0-14 WW", "[A] WEAVER - 0-16 WW"]
+    assert [n for n in names if n.startswith("[A] WEAVER")] == ["[A] WEAVER - 19+ WW", "[A] WEAVER - 15-18 WW",
+                                                                 "[A] WEAVER - 0-14 WW", "[A] WEAVER - 0-16 WW"]
     assert res["dropped"] == ["[A] WEAVER - 17+ WW"]
+    assert names.index("EXALTED - CORRUPTED DOUBLE T7") == names.index("EXALTED - SINGLE T7") + 1
+    assert names.index("SHOW ALL CORRUPTED ITEMS") == names.index("EXALTED - CORRUPTED DOUBLE T7") + 1
+    assert [n for n in names[1:6]] == [f"[A] Hide non-{c} class non-legendary items" for c in CLASSES]

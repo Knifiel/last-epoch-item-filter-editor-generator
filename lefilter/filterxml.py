@@ -266,16 +266,6 @@ class MergeResult:
     insert_at: int
 
 
-def insert_above_section(blocks: list[str], at: int, new: list[str]) -> tuple[list[str], int]:
-    """Insert `new` directly above the separator heading the section that index `at` is in
-    (so they close the previous section), or at `at` when no separator is above it."""
-    infos = rule_infos(blocks[:at])
-    seps = [i for i, info in enumerate(infos) if info.is_separator]
-    if new and seps:
-        at = seps[-1]
-    return blocks[:at] + list(new) + blocks[at:], at
-
-
 def merge(base: BaseFilter, generated: list[str], prefix: str, drop: list[str], after: str = "",
           keep_above: list[str] = (), keep: list[dict] | None = None, top: list[str] = (),
           elsewhere: list[str] = ()) -> MergeResult:

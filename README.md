@@ -49,8 +49,8 @@ on Windows and `~/.local/share/last-epoch-item-filter-editor` on Linux.
   game shows them ("+24-30% Cold Penetration") with per-tier tables, and the game's own names in
   any of its languages.
 - **New filter from a template**: legendary/unique and set rules grouped by drop rarity, LP and
-  Weaver's Will, exalted and T8 rules, a BiS section, shatter rules, class item hide rules and a
-  hide-everything-else rule, set up for the class you pick.
+  Weaver's Will, exalted and T8 rules, corrupted item rules, a BiS section, shatter rules, class
+  item hide rules and a hide-everything-else rule, set up for the class you pick.
 - **[Leveling generator](#leveling-section)**: pick damage types, build focus, attributes, your
   class's skill-level affixes and weapon types; get campaign rules whose bases switch over every 10 levels, plus the good bases you pick
   per slot until the cap.
@@ -140,8 +140,8 @@ rename the slot first or the next run replaces it.
 
 `[class_hide]` adds one disabled rule per class, e.g. `[A] Hide non-Sentinel class
 non-legendary items`: it hides normal/magic/rare class-specific items that only the other
-four classes can use. In the template they close the section before the generated block
-(right after the exalted rules), so they also apply before the leveling rules. In a
+four classes can use. They go right below the always-show affix rules at the top, so they
+keep those items out of every rule below (BiS, corrupted, shatter, leveling ...). In a
 build's copy, enable the one for its class (or list classes in `enabled_for`).
 
 ## How the data is read
@@ -206,9 +206,16 @@ of the game's languages (the editor's own labels stay English).
   ranges, as in-game: type the values the tooltip shows; they're stored as the game stores
   them (rolls 0-255, converted the game's way). *Preview at character level* dims rules that are switched off at that level.
 - **Reorder generated sections** (Rules tab) moves the generated sections back to their
-  places - BiS rules under the BiS header, the idol section after the shatter section, the
-  leveling section above the bottom hide-everything rule - each only if the filter has that
-  spot; other rules stay where they are. Ctrl+Z undoes it.
+  places - the class hide rules right below the always-show rules at the top, BiS rules under
+  the BiS header, the idol section after the shatter section, the leveling section above the
+  bottom hide-everything rule - each only if the filter has that spot; other rules stay where
+  they are. Ctrl+Z undoes it.
+- **Remove an affix…** (Rules tab) takes one affix out of every rule's affix condition at
+  once: pick it from the affixes the filter's rules list (with how many rules list each), see
+  the rules it goes from, remove. A rule listing only that affix keeps it (an empty list
+  would take any affix); one asking for more affixes than it has left asks for what's left.
+  Ctrl+Z undoes it. The generator tabs put it back when applied again unless it's left out
+  there too.
 - **Add missing sections…** (Rules tab) completes a filter that didn't start from *New* -
   e.g. the uniques-only one `build --standalone` writes, which the editor points out when
   you open it: the new-filter template's always-show affixes, generic BiS rules, exalted and
@@ -232,12 +239,14 @@ of the game's languages (the editor's own labels stay English).
   the template has them, rules you removed stay removed, rules you changed keep your
   version, untouched ones take the new one (the old template goes to the backups, each
   update is logged in `templates/.generated/updates.log`). Top to bottom it has: the
-  always-show personal/variant affix rule; a **BiS section** (per slot the slot's item type
+  always-show personal/variant affix rule; the class item hide rules; a **BiS section** (per slot the slot's item type
   with no bases picked and no affixes, switched off, plus one weapon rule without an item
   type - generic placeholders the [Best in slot tab](#best-in-slot-generator) replaces; own
   colour, emphasis and beam, `[bis]`); the exalted rules (`[[exalted_rule]]`: **all T8 items** first - any gear
   affix at tier 8, no item-type condition - then double T7, T7+T6, single T7 on uncorrupted
-  items) and a show-all-legendary rule; the class item hide rules; a **shatter section**
+  items, and double T7 on corrupted ones), a **show-all-corrupted** rule (normal to exalted
+  items that dropped corrupted, whatever their affixes: some builds want the corrupted
+  affixes themselves; `[starter] corrupted`) and a show-all-legendary rule; a **shatter section**
   (`[shatter]`: magic/rare/exalted gear - idols can't be shattered - with rare-roll affixes:
   roll weighting <= 0.15, i.e. Hybrid Health and the "X and minion X penetration" ones; plus
   one rule per class for its class-specific affixes at T3+); the unique/set rules; and a rule
@@ -380,11 +389,13 @@ height, drawn as its inventory footprint) and class:
   3x1 / 1x3 Omen idols, which also roll the 4x1, 1x4 and 2x2 affixes.
 
 Each kind shows exactly the affixes the game data lets roll on it (the affix's item types
-and class restriction; corrupted-only affixes in their own group). Tick the ones you want
+and class restriction; corrupted-only affixes in their own group, for Omen idols those of the
+4x1, 1x4 and 2x2 sizes too; a class idol also lists the Enchanted affixes its heretical version
+rolls, in their own group). Tick the ones you want
 and whether one or both of an idol's two affixes must be among them; each kind with picks
 becomes one show rule (item type + its bases + affix condition), optionally followed by a
 rule hiding every other non-unique idol. Picks can be copied to another kind (e.g. a size's
-Omen version). The section's rules start with `[I] `: applying again replaces them, and
+Omen version) or to every other kind at once - each takes the picks that can roll on it. The section's rules start with `[I] `: applying again replaces them, and
 opening a filter loads its picks back from them. Without a section yet it goes right after
 the shatter section, before the uniques (else under a separator named like IDOL, else at the
 top of the filter); the tab warns about rules above

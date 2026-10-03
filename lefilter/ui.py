@@ -33,10 +33,11 @@ from .leveling import (SECTIONS, TOGGLES, class_affix_choices, class_affixes, pa
                        plan_leveling, toggle_affixes)
 from .sections import IDOL_PLACEMENT, doc_infos, place, reorder_generated
 from . import __version__
-from .starter import (PARTS, TEMPLATE_PARTS, add_missing_sections, load_template, make_template, new_from_template,
-                      refresh_generated, sync_template, template_stamp, write_generated_template, write_template)
+from .starter import (PARTS, TEMPLATE_PARTS, add_missing_sections, class_hide_spot, load_template, make_template,
+                      new_from_template, refresh_generated, sync_template, template_stamp, write_generated_template,
+                      write_template)
 from .matcher import Context, evaluate
-from .rules import ConfigError
+from .rules import ConfigError, read_config
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 FILE_RE = re.compile(r"^[^/\\:*?\"<>|]+\.xml$", re.I)
@@ -67,7 +68,7 @@ class Api:
     @property
     def config(self) -> dict:
         """config.toml, read fresh so edits apply without restarting the editor."""
-        return tomllib.loads(self.config_path.read_text(encoding="utf-8"))
+        return read_config(self.config_path)
 
     # --- files ---------------------------------------------------------------------
 
@@ -256,7 +257,11 @@ class Api:
 
     def reorder(self, body: dict) -> dict:
         """The open filter with its generated sections back in their places (Reorder generated sections)."""
-        rules, moved = reorder_generated(body["rules"], {"bis": bis.PREFIX, **body.get("prefixes", {})})
+        try:
+            spot = class_hide_spot(self.config, self.data)
+        except (ConfigError, ValueError, KeyError, tomllib.TOMLDecodeError):   # a broken config.toml: the rest still works
+            spot = {}
+        rules, moved = reorder_generated(body["rules"], {"bis": bis.PREFIX, **body.get("prefixes", {})}, **spot)
         return {"rules": rules, "moved": moved}
 
     def bis_read(self, body: dict) -> dict:

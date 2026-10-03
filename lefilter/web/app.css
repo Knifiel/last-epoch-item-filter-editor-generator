@@ -292,3 +292,5 @@ body { max-width: 2560px; margin: 0 auto; width: 100%; }
 .chip.misfit { border-style: dashed; opacity: .7; }
 .uniq-roll-group { border-bottom: 1px dashed #2a2430; padding: 2px 0; }
 .class-affixes label.excluded { opacity: .6; }
+.remove-affix-list { max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }
+.remove-affix-list .affix-row { display: flex; gap: 6px; align-items: center; text-align: left; }

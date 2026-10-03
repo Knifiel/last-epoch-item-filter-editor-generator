@@ -70,13 +70,28 @@ LEVELING_PLACEMENT = {"section": "LEVELING", "fallback": "bottom"}   # above the
 BIS_PLACEMENT = {"section": "BIS", "fallback": "top"}
 
 
-def reorder_generated(rules: list[dict], prefixes: dict[str, str]) -> tuple[list[dict], list[str]]:
-    """The generated sections - BiS rules, the idol section, the leveling section; prefixes:
-    {"bis", "idols", "leveling"} -> rule name prefix - moved back to where they belong (see the
-    placements), each only when the filter has that spot. Returns (rules, labels of sections moved)."""
+def place_class_hide(rules: list[dict], top_names, hide_names) -> list[dict]:
+    """The class hide rules (named in hide_names) right below the always-show rules leading the
+    filter (named in top_names), else at the very top: they keep other classes' items out of every
+    rule below. The other rules keep their order."""
+    is_hide = [("raw" not in r and r.get("name") in hide_names) for r in rules]
+    rest = [r for r, h in zip(rules, is_hide) if not h]
+    at = 0
+    while at < len(rest) and "raw" not in rest[at] and rest[at].get("name") in top_names:
+        at += 1
+    return rest[:at] + [r for r, h in zip(rules, is_hide) if h] + rest[at:]
+
+
+def reorder_generated(rules: list[dict], prefixes: dict[str, str], top_names=(), hide_names=()) -> tuple[list[dict], list[str]]:
+    """The generated sections - the class hide rules (see place_class_hide), BiS rules, the idol
+    section, the leveling section; prefixes: {"bis", "idols", "leveling"} -> rule name prefix -
+    moved back to where they belong (see the placements), each only when the filter has that spot.
+    Returns (rules, labels of sections moved)."""
     placements = (("BiS rules", prefixes.get("bis"), BIS_PLACEMENT), ("idol section", prefixes.get("idols"), IDOL_PLACEMENT),
                   ("leveling section", prefixes.get("leveling"), LEVELING_PLACEMENT))
-    out, moved = list(rules), []
+    out, moved = place_class_hide(rules, set(top_names), set(hide_names)), []
+    if [id(r) for r in out] != [id(r) for r in rules]:
+        moved.append("class hide rules")
     for label, prefix, where in placements:
         if not prefix:
             continue
