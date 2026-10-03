@@ -89,6 +89,9 @@ writes stays in the project folder (`data/`, `.cache/`, `out/`, `templates/`).
 .venv/bin/python -m lefilter leveling           # print what the [leveling] config section generates
 ```
 
+`--filters-dir <folder>` (before the command, e.g. `python -m lefilter --filters-dir ~/try ui`) uses that
+folder instead of the game's Filters folder - a copy to try things on, or the browser tests' own.
+
 `build` re-extracts the game data by itself when the installed game build differs
 from `data/uniques.json`. The report next to the XML lists every group with its
 rules and member uniques (name, type, LPL, reroll chance) - check it after a patch.
@@ -200,7 +203,8 @@ of the game's languages (the editor's own labels stay English).
 
 On a touch screen (e.g. the Steam Deck's desktop mode, whose 1280×800 screen the editor fits)
 press and hold where a mouse would hover - a base, an affix or its values, a unique, a toggle, a
-button - for its tooltip or what it does. The tooltip stays until the next touch, and lifting the
+button - for its tooltip or what it does, then keep the finger down and slide it over others to see
+theirs (the page doesn't scroll meanwhile). The tooltip stays until the next touch, and lifting the
 finger doesn't click.
 
 - **Rules**: the rule list in in-game order (top = first match wins) with on/off
@@ -216,10 +220,14 @@ finger doesn't click.
   altars) shows its stats: level and class requirement, implicits with the range they roll
   in, a weapon's base attack rate, and an idol altar's idol grid with its refracted slots.
   The uniques condition's picker filters by item type (quick-filter buttons with counts) and
-  can show only Weaver's Will or only primordial uniques - the Weaver's Will and primordial
-  build slots open with that filter on - and
+  can show only Weaver's Will uniques, random drops, non-random drops, primordial uniques or set
+  items (their own rarity) - each of those sections' build slots opens with its filter on. Like the
+  in-game picker it lists the uniques, then the set items, each by item slot; showing set items, it can
+  group them by set instead. A picked item the rule's Rarity can't match is marked *never matches* (a
+  Unique rarity never matches a set item, nor a Set one a unique, though the game's picker lists both),
+  with *Remove them* to take those out. It also
   shows each unique's tooltip on hover - base and its implicits, level, LP level, its
-  modifiers with their ranges (set items marked), and lore. Each picked unique can require roll
+  modifiers with their ranges, a set item's set bonuses in a block of their own (the pieces each needs, as in-game: "(2): ...", and the set's items), and lore. Each picked unique can require roll
   ranges, as in-game: type the values the tooltip shows; they're stored as the game stores
   them (rolls 0-255, converted the game's way). *Preview at character level* dims rules that are switched off at that level.
 - **Reorder generated sections** (Rules tab) moves the generated sections back to their

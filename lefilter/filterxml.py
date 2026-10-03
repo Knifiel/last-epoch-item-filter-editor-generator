@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from .gamedata import CLASSES, flags_to_xml
+from .gamedata import CLASSES, check_filter_version, flags_to_xml
 from .rules import Rule
 
 LOOT_FILTER_VERSION = 9
@@ -180,9 +180,7 @@ def _unescape(s: str) -> str:
 def read_filter(path: Path) -> BaseFilter:
     text = path.read_bytes().decode("utf-8-sig")
     version = _tag(text, "lootFilterVersion")
-    if version != str(LOOT_FILTER_VERSION):
-        raise ValueError(f"{path.name}: lootFilterVersion {version}, expected {LOOT_FILTER_VERSION} - "
-                         "open and save it in the current game version first")
+    check_filter_version(int(version) if version and version.strip().isdigit() else None, text, LOOT_FILTER_VERSION, f"{path.name}: ")
     rules_xml = _tag(text, "rules") or ""
     blocks = [b.replace("\r\n", "\n").replace("\n", NL) for b in _RULE_RE.findall(rules_xml)]
     header = FilterHeader(

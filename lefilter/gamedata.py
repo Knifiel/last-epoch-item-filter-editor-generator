@@ -5,6 +5,8 @@ enums as space-separated names ("UNIQUE SET").
 """
 from __future__ import annotations
 
+import re
+
 # EquipmentType: the base type id (MasterItemsList baseTypeID) is the enum value.
 EQUIPMENT_TYPES = {
     0: "HELMET", 1: "BODY_ARMOR", 2: "BELT", 3: "BOOTS", 4: "GLOVES",
@@ -96,3 +98,19 @@ def flags_to_xml(names: list[str], order: tuple[str, ...], none: str = "None", e
 
 def class_names(bits: int) -> list[str]:
     return [c for c in CLASSES if bits & CLASS_BITS[c]]
+
+
+# --- filter file version ---------------------------------------------------------------------------------
+# What the game's upgrade of an older filter works on (ItemFilterManager.UpdateFilter renames old tags,
+# ItemFilter.Sanitize turns levelDependent into a level condition and BeamId into the beam fields).
+OLD_FILTER_LAYOUT = re.compile(r"TWO_HANDED_POLEARM|<type>HIGHLIGHT</type>|<(?:levelDependent|minLvl|maxLvl)>"
+                               r"|<levelDependent_deprecated>true<|<BeamId>")
+
+
+def check_filter_version(version: int | None, text: str, current: int, where: str = "") -> None:
+    """Refuses a filter this tool can't read as lootFilterVersion `current`. The game writes 0 into the filters it
+    creates (it upgrades them when it next loads one, which would clear their map icons and beam overrides), so
+    0 in the current layout counts as current - saving writes `current`, so the game leaves it as it is."""
+    if version == current or (version == 0 and not OLD_FILTER_LAYOUT.search(text)):
+        return
+    raise ValueError(f"{where}lootFilterVersion {version}, expected {current} - open and save it in the current game version first")

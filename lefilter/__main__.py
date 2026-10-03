@@ -13,7 +13,7 @@ from . import filterxml
 from .extract import DATA_VERSION, ExtractError, extract
 from .filterxml import (BaseFilter, FilterHeader, assemble, merge, read_filter, render_rule, rule_infos,
                         write_filter)
-from .game import DATA_FOLDER, GameNotFound, find_filters_dir, find_game
+from .game import DATA_FOLDER, GameNotFound, find_filters_dir, find_game, use_filters_dir
 from .paths import (CACHE_DIR, CONFIG_FILE, DATA_DIR, FROZEN, OUT_DIR, TEMPLATE_FILE, USER_DIR, prepare_user_dir,
                     save_game_dir, saved_game_dir)
 from .leveling import LevelingPlan, parse_options, plan_leveling
@@ -304,6 +304,8 @@ def cmd_selftest(args) -> None:
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(prog="lefilter", description="Generate Last Epoch loot-filter rules for uniques from game data.")
     p.add_argument("--game-dir", type=Path, help="Last Epoch install folder (auto-detected from Steam otherwise)")
+    p.add_argument("--filters-dir", type=Path,
+                   help="loot filter folder to use instead of the game's (e.g. a copy to try things on, or tests')")
     p.add_argument("--config", default=str(CONFIG_FILE))
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -337,6 +339,10 @@ def main(argv=None) -> None:
     t.set_defaults(func=cmd_selftest)
 
     args = p.parse_args(argv)
+    if args.filters_dir:
+        if not args.filters_dir.is_dir():
+            sys.exit(f"error: --filters-dir {args.filters_dir} is not a folder")
+        use_filters_dir(args.filters_dir.resolve())
     if args.cmd != "selftest":
         prepare_user_dir()
     try:

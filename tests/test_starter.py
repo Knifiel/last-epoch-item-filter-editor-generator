@@ -513,7 +513,10 @@ NEW_GROUPS = [{"name": "PRIMORDIAL", "header": "--- PRIMORDIAL ---", "categories
 def primordial_config(groups, cocooned=True) -> dict:
     """FULL_CONFIG with these primordial groups; cocooned=False: no [starter] cocooned rule (as v0.3.2 had)."""
     starter = {**FULL_CONFIG["starter"], **({} if cocooned else {"cocooned": False})}
-    return {**FULL_CONFIG, "starter": starter, "group": CONFIG["group"] + groups}
+    idols_off = groups is NEW_GROUPS   # this version: the unique idols' show-all rule is off unless switched on
+    base = [{**g, "rules": [{**g["rules"][0], "enabled": False}]} if idols_off and g["name"] == "UNIQUE IDOLS" else g
+            for g in CONFIG["group"]]
+    return {**FULL_CONFIG, "starter": starter, "group": base + groups}
 
 
 def test_an_old_configs_cocooned_group_and_primordial_header_get_this_versions():
@@ -564,3 +567,14 @@ def test_a_v032_template_update_moves_cocooned_and_keeps_a_filled_primordial_slo
     assert not rules[names.index(NEW_COC)]["enabled"]                       # still off
     assert rules[names.index(NEW_SLOT)]["conditions"][1]["uniques"] == [{"id": 7, "rolls": []}]
     assert res["added"] == [NEW_COC] and res["dropped"] == [OLD_COC]
+
+
+def test_the_unique_idols_show_all_rule_is_off_by_default_now():
+    # unique idols are in the drop-rarity rules too: an untouched old config's show-all rule goes off
+    group = {"name": "UNIQUE IDOLS", "categories": ["common"], "base_types": ["IDOLS"], "rules": [{"label": "show all"}]}
+    assert upgrade_config({"group": [group]})["group"][0]["rules"] == [{"label": "show all", "enabled": False}]
+    changed = {**group, "rules": [{"label": "show all", "color": 4}]}
+    assert upgrade_config({"group": [changed]})["group"][0] == changed            # one the user changed stays theirs
+    from lefilter.rules import released_defaults
+    now = {**group, "rules": [{"label": "show all", "enabled": False}]}
+    assert next(g for g in released_defaults({"group": [now]})["group"] if g["name"] == "UNIQUE IDOLS")["rules"] == group["rules"]

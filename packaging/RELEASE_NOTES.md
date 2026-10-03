@@ -3,6 +3,33 @@
 Edit Last Epoch loot filters outside the game, and generate rules for uniques, leveling, idols,
 BiS items, shattering and more - straight from your own game installation.
 
+### What's new in v0.3.4
+
+- **Touch screens: slide to see more.** After pressing and holding something for its tooltip, keep the
+  finger down and slide it over other chips, bases, affixes or buttons: each shows its tooltip as the
+  finger passes over it, and the page doesn't scroll meanwhile. Lifting the finger still clicks nothing.
+- The **Best in slot** tab's picked affixes show their tier tables on hover (or press and hold), as in
+  the rule editor.
+- The uniques picker's *Show only* filters gain **Random drops**, **Non-random drops** and **Set items**
+  (next to Weaver's Will and Primordial, in the template's section order), and every *EDIT FOR YOUR BUILD*
+  slot opens with its section's filter on - the set items' one lists only set items, the only ones its
+  Set rarity matches. Quick-filter chips that wrap now line up under each other.
+- **Uniques and set items as in-game**: the uniques picker lists the uniques, then the set items, each by
+  item slot. Showing set items, **Group by set** lists them by set (in alphabetical order) instead. A
+  picked item the rule's Rarity can never match - a set item in a Unique rule, or a unique in a Set rule:
+  the game's picker offers both - is marked *never matches*, and *Remove them* takes those out.
+- **Set bonuses in set items' tooltips**, in a block of their own as in-game: each bonus with the set
+  pieces it needs ("(2): ...", "(3): ..."), and the set's items. Set items and cocooned items show no LP
+  level any more (in their tooltip or the uniques picker): it means nothing for them.
+- *UNIQUE IDOLS - show all* (at the bottom of the primordial section) is off in new filters and the
+  template: unique idols are in the drop-rarity rules above it too (*SPECIAL LPL 0-59 - 0LP+* shows the
+  special ones whatever their LP). Switch it on to show the rest of them (common and uncommon ones with
+  no LP). Existing filters keep it as they have it.
+- **Filters made in-game open**: the game writes version 0 into the filters it creates, which the editor
+  refused ("expected 9"). They open now, and saving them writes the current version.
+- `--filters-dir <folder>` (command line) uses another folder instead of the game's Filters folder.
+- The game data is re-read once on the first start (a minute or two): sets - each set item's set and the sets' bonuses.
+
 ### What's new in v0.3.3
 
 - **Steam Deck / Linux**: double-clicking `LEIFEG` in the file manager now works - the terminal

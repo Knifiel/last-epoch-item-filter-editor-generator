@@ -116,6 +116,20 @@ def test_unknown_rule_layout_is_kept_raw_with_its_name():
 def test_rejects_other_filter_versions():
     with pytest.raises(ValueError, match="lootFilterVersion 8"):
         parse_filter(filter_text([]).replace("<lootFilterVersion>9<", "<lootFilterVersion>8<"))
+    with pytest.raises(ValueError, match="lootFilterVersion 10"):
+        parse_filter(filter_text([]).replace("<lootFilterVersion>9<", "<lootFilterVersion>10<"))
+
+
+def test_a_filter_the_game_just_created_opens_and_saves_as_version_9():
+    # The game writes lootFilterVersion 0 into the filters it creates, in the current layout.
+    text = filter_text([rule_xml([], name="mine")]).replace("<lootFilterVersion>9<", "<lootFilterVersion>0<")
+    doc = parse_filter(text)
+    assert doc["rules"][0]["name"] == "mine" and "raw" not in doc["rules"][0]
+    assert "<lootFilterVersion>9</lootFilterVersion>" in render_filter(doc)
+    # an old one, as the game upgrades it (level fields, beam ids, renamed types): refused
+    for old in ("<BeamId>3</BeamId>", "<type>HIGHLIGHT</type>", "<minLvl>5</minLvl>", "TWO_HANDED_POLEARM"):
+        with pytest.raises(ValueError, match="lootFilterVersion 0"):
+            parse_filter(text.replace("<SoundId>", old + "<SoundId>", 1))
 
 
 def test_generated_rules_decode_like_editor_rules():

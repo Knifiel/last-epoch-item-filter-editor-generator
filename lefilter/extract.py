@@ -32,7 +32,7 @@ from .gamedata import (ARMOUR_TYPES, EQUIPMENT_TYPES, JEWELRY_TYPES, OFFHAND_TYP
 from .paths import SCHEMA_DIR           # optional hand-made type trees (checked after the cached ones)
 
 WEAVERS_WILL = 1  # UniqueList.LegendaryType.WeaversWill
-DATA_VERSION = 19  # bump when data/uniques.json gains fields, so `build` re-extracts
+DATA_VERSION = 20  # bump when data/uniques.json gains fields, so `build` re-extracts
 
 
 class ExtractError(Exception):
@@ -118,9 +118,23 @@ def read_property_list(snap: Path, schemas: list[Path], name: str = "MasterPrope
 PROPERTY_LISTS = {"PropertyList": ("MasterPropertyList", "propertyInfoList"),
                   "AbilityPropertyList": ("AbilityPropertyList", "list"),
                   "PlayerPropertyList": ("PlayerPropertyList", "list")}
-SCHEMA_CLASSES = ("UniqueList", *PROPERTY_LISTS, "IdolsContainerGridDataList")
+SCHEMA_CLASSES = ("UniqueList", *PROPERTY_LISTS, "IdolsContainerGridDataList", "SetBonusesList")
 AFFIX_KINDS = {0: "prefix", 1: "suffix", 2: "special"}
 ALTAR_BLOCKED, ALTAR_REFRACTED = 99, 100   # IdolsContainerGridData.CellBlockedId / RefractedSlotIdJump
+
+
+def read_sets(snap: Path, schemas: list[Path]) -> list[dict]:
+    """SetBonusesList's sets (id 0 = none left out): setID, setName ("Isadora's", "Sunforged" ...: the game has
+    no localized set names), the bonuses (mods, tooltipDescriptions, tooltipEntries, each with its setRequirement).
+    UniqueList's setID puts each set item in its set."""
+    env = UnityPy.load(str(snap / "resources.assets"))
+    obj = _find_monobehaviour(env, "SetBonusesList")
+
+    def validate(d: dict) -> None:
+        if not any((e.get("setName") or "").strip() for e in d.get("entries") or []):
+            raise ExtractError("SetBonusesList decoded but has no named sets")
+    data = _read_with_schemas(obj, schemas, "SetBonusesList", validate)
+    return [e for e in data["entries"] if e["setID"] and (e["setName"] or "").strip()]
 
 
 def read_altar_grids(snap: Path, schemas: list[Path]) -> dict[int, list[list[int]]]:
@@ -435,6 +449,7 @@ def build_records(uniques: list[dict], base_items: dict, names: dict[str, str]) 
             "can_drop_randomly": bool(u["canDropRandomly"]),
             "reroll_chance": round(u["rerollChance"], 4),
             "is_set": bool(u["isSetItem"]),
+            "set_id": int(u.get("setID") or 0) if u["isSetItem"] else 0,   # its set (data["sets"])
             "is_primordial": bool(u["isPrimordialItem"]),
             "is_cocooned": bool(u["isCocoonedItem"]),
             "hidden": bool(u["hideFromPlayers"]),
@@ -490,7 +505,16 @@ def extract(game: Game, cache_root: Path, out_path: Path, regen_schema: bool = F
         "omen_affix_mod": round(items.get("omenIdolAffixEffectModifier", 0.0), 4),   # replaces the base's on omen idols
         "bases": build_bases(items, names, property_lists, tables, words),
         "palette": build_palette(colors),
+        "sets": [],   # [{"id", "name", "items": [unique ids], "bonuses": [lines]}]: the sets set items belong to (set_id)
     }
+    try:   # the editor's set items: grouped by set, their tooltip's set bonuses
+        for e in sorted(_read_or_regenerate(lambda s: read_sets(snap, s), game, cache_root, "SetBonusesList"),
+                        key=lambda e: e["setID"]):
+            data["sets"].append({"id": e["setID"], "name": e["setName"].strip(),
+                                 "items": [r["id"] for r in records if r["set_id"] == e["setID"] and not r["hidden"]],
+                                 "bonuses": affixtext.set_bonuses(e, property_lists, tables, words)})
+    except Exception as e:
+        warnings.append(f"sets not read (the editor can't group set items by set or show set bonuses): {e}")
     try:   # the editor's altar tooltips: each altar's idol slots
         grids = _read_or_regenerate(lambda s: read_altar_grids(snap, s), game, cache_root, "IdolsContainerGridDataList")
         for b in data["bases"]:

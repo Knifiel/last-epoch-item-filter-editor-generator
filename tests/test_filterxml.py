@@ -106,6 +106,8 @@ def test_old_filter_version_is_rejected(tmp_path):
     path.write_text('<ItemFilter><name>x</name><lootFilterVersion>2</lootFilterVersion><rules /></ItemFilter>')
     with pytest.raises(ValueError, match="lootFilterVersion 2"):
         read_filter(path)
+    path.write_text('<ItemFilter><name>x</name><lootFilterVersion>0</lootFilterVersion><rules /></ItemFilter>')
+    assert read_filter(path).header.name == "x"          # made by the game itself: current layout
 
 
 def test_separator_renders_without_conditions():

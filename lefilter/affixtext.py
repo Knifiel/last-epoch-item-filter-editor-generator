@@ -306,6 +306,28 @@ def unique_tooltip(unique: dict, lists: PropertyLists, tables: dict[str, dict[st
     return out
 
 
+def set_bonuses(entry: dict, lists: PropertyLists, tables: dict[str, dict[str, str]],
+                words: dict[int, str] | None = None) -> list[dict]:
+    """A set's bonuses (SetBonusesList entry) in the game's order (tooltipEntries, as a unique's), each with
+    "set": the set pieces it needs - a bonus as a stat_lines line, a written one as {"text", "desc": its index}
+    (the game has no translations of those: SetBonusesList's English text). Bonuses the written ones describe
+    (hideInTooltip) are left out."""
+    mods, descs = entry.get("mods") or [], entry.get("tooltipDescriptions") or []
+    order = [e["modDisplay"] for e in entry.get("tooltipEntries") or []] \
+        or [*range(len(mods)), *(UNIQUE_DESCRIPTION + i for i in range(len(descs)))]
+    out = []
+    for k in order:
+        if k >= UNIQUE_DESCRIPTION:
+            i = k - UNIQUE_DESCRIPTION
+            if i < len(descs) and (descs[i].get("description") or "").strip():
+                out.append({"text": descs[i]["description"].strip(), "desc": i, "set": descs[i].get("setRequirement", 0)})
+        elif k < len(mods) and not mods[k].get("hideInTooltip") and lists.master:
+            m = mods[k]
+            out.append({**stat_lines([{**m, "lo": m["value"], "hi": m["value"]}], lists, tables, words)[0],
+                        "set": m.get("setRequirement", 0)})
+    return out
+
+
 def unique_rolls(unique: dict, lists: PropertyLists, tables: dict[str, dict[str, str]],
                  words: dict[int, str] | None = None) -> list[dict]:
     """The rolls a filter's unique condition can ask for, as the game's picker offers them

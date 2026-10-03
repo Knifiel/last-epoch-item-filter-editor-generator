@@ -216,9 +216,20 @@ def locale_bundles(snap: Path) -> list[tuple[str, str, Path]]:
     return out
 
 
+_filters_dir: Path | None = None   # --filters-dir
+
+
+def use_filters_dir(path: Path | None) -> None:
+    """Use this folder as the game's loot-filter folder instead of looking for it (--filters-dir)."""
+    global _filters_dir
+    _filters_dir = path
+
+
 def find_filters_dir() -> Path | None:
     """The game's loot-filter folder (the most recently used one if there are several: several
-    Windows users, or several Proton prefixes)."""
+    Windows users, or several Proton prefixes), or the one --filters-dir named."""
+    if _filters_dir is not None:
+        return _filters_dir
     if os.name == "nt":
         candidates = [Path(os.environ.get("USERPROFILE", "")) / FILTERS_SUBPATH]
     else:

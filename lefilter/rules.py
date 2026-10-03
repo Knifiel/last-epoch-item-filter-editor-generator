@@ -36,6 +36,9 @@ UPDATED_GROUP_RULES = {
     "WEAVER": ([{"ww_min": 17, "color": 2, "emphasized": True}, {"ww_max": 16, "color": 2}],      # v0.2.0
                [{"ww_min": 19, "color": 7, "emphasized": True}, {"ww_min": 15, "ww_max": 18, "color": 2, "emphasized": True},
                 {"ww_max": 14, "color": 2}]),
+    # v0.3.4: unique idols are in the drop-rarity rules above it too: the show-all rule is for the ones they let
+    # through (e.g. common 0LP ones) - off unless switched on
+    "UNIQUE IDOLS": ([{"label": "show all"}], [{"label": "show all", "enabled": False}]),
 }
 _ALL_UNIQUES = ["common", "uncommon", "rare", "very_rare", "extremely_rare", "special", "primordial", "cocooned", "weaver"]
 # Other [[group]] settings, (group name, key) -> (earlier default, this version's).
@@ -70,19 +73,20 @@ def _swap_defaults(config: dict, to_new: bool) -> dict:
         return old if current in (old, new) else current
 
     out = copy.deepcopy(config)
+    if "group" in out and not to_new:   # the dropped groups back first, so the swaps below give them their old form
+        for group, after in DROPPED_GROUPS:
+            if not any(g.get("name") == group["name"] for g in out["group"]):
+                at = next((i + 1 for i, g in enumerate(out["group"]) if g.get("name") == after), len(out["group"]))
+                out["group"].insert(at, copy.deepcopy(group))
     for g in out.get("group", []):
         if g.get("name") in UPDATED_GROUP_RULES and "rules" in g:
             g["rules"] = swap(*UPDATED_GROUP_RULES[g["name"]], g["rules"])
         for (name, key), defaults in UPDATED_GROUP_SETTINGS.items():
             if g.get("name") == name and key in g:
                 g[key] = swap(*defaults, g[key])
-    if "group" in out:
-        for group, after in DROPPED_GROUPS:
-            if to_new:   # still as it was: gone (a changed one stays the user's)
-                out["group"] = [g for g in out["group"] if g != group]
-            elif not any(g.get("name") == group["name"] for g in out["group"]):
-                at = next((i + 1 for i, g in enumerate(out["group"]) if g.get("name") == after), len(out["group"]))
-                out["group"].insert(at, copy.deepcopy(group))
+    if "group" in out and to_new:   # a dropped group still as it was: gone (a changed one stays the user's)
+        for group, _ in DROPPED_GROUPS:
+            out["group"] = [g for g in out["group"] if g != group]
     if "exalted_rule" in out:
         out["exalted_rule"] = swap(*UPDATED_EXALTED_RULES, out["exalted_rule"])
     if "affix_rule" in out:
@@ -317,16 +321,27 @@ def _drop_tier(u: dict, thresholds: dict[str, float]) -> str:
     return tier
 
 
-def categorize(u: dict, thresholds: dict[str, float]) -> str:
+def unique_kind(u: dict) -> str:
+    """What sort of unique u is, before its drop rarity: set, weaver (Weaver's Will), cocooned, primordial
+    (in that order, as categorize sorts them), else random or non_random (it can't drop randomly)."""
     if u["is_set"]:
-        return f"set_{_drop_tier(u, thresholds)}"
+        return "set"
     if u["weavers_will"]:
         return "weaver"
     if u["is_cocooned"]:
         return "cocooned"
     if u["is_primordial"]:
         return "primordial"
-    return _drop_tier(u, thresholds)
+    return "random" if u["can_drop_randomly"] else "non_random"
+
+
+def categorize(u: dict, thresholds: dict[str, float]) -> str:
+    kind = unique_kind(u)
+    if kind == "set":
+        return f"set_{_drop_tier(u, thresholds)}"
+    if kind in ("weaver", "cocooned", "primordial"):
+        return kind
+    return _drop_tier(u, thresholds)   # special when it can't drop randomly
 
 
 def _norm(s: str) -> str:
@@ -416,10 +431,11 @@ def plan_rules(config: dict, uniques: list[dict]) -> Plan:
 
 
 def build_slot_filters(config: dict, uniques: list[dict]) -> dict[str, str]:
-    """Build slot name -> the uniques filter the editor's picker starts with for it: "weaver" for the
-    slot of the section with the Weaver's Will uniques, "primordial" for the one with the primordial
-    uniques (its other groups - cocooned items, which only hold a random unique, and the unique idols
-    let through - aren't what a build picks there). Other slots: none."""
+    """Build slot name -> the uniques filter (a unique_kind) the editor's picker starts with for it:
+    "weaver" for the slot of the section with the Weaver's Will uniques, "primordial" for the one with
+    the primordial uniques (its other groups - the unique idols let through - aren't what a build picks
+    there), "random" for a section of random drops only (common to extremely rare), "non_random" for one
+    of uniques that can't drop randomly, "set" for the set items' (their own rarity). Other slots: none."""
     try:
         plan = plan_rules(config, uniques)
     except ConfigError:
@@ -430,6 +446,12 @@ def build_slot_filters(config: dict, uniques: list[dict]) -> dict[str, str]:
             out[name] = "weaver"
         elif "primordial" in cats:
             out[name] = "primordial"
+        elif cats and cats <= set(DROP_TIERS) - {"special"}:
+            out[name] = "random"
+        elif cats == {"special"}:
+            out[name] = "non_random"
+        elif cats and all(c.startswith("set_") for c in cats):
+            out[name] = "set"
     for was, now in renamed_rules(config).items():   # a filter not refreshed since has the slot by its old name
         if now in out:
             out.setdefault(was, out[now])

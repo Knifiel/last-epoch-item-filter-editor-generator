@@ -13,7 +13,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
-from .gamedata import CLASSES, FACTIONS, FLAG_CONDITIONS, RARITIES, flags_to_xml
+from .gamedata import CLASSES, FACTIONS, FLAG_CONDITIONS, RARITIES, check_filter_version, flags_to_xml
 
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
 XSI = f"{{{XSI_NS}}}"
@@ -333,10 +333,7 @@ def parse_filter(text: str) -> dict:
     if root.tag != "ItemFilter" or root.child_tags() != HEADER_TAGS:
         raise ValueError(f"not a loot filter this tool understands (elements: {root.child_tags()})")
     t = {c.tag: c for c in root.children}
-    version = int(t["lootFilterVersion"].text)
-    if version != LOOT_FILTER_VERSION:
-        raise ValueError(f"lootFilterVersion {version}, expected {LOOT_FILTER_VERSION} - "
-                         "open and save it in the current game version first")
+    check_filter_version(int(t["lootFilterVersion"].text), text, LOOT_FILTER_VERSION)
     header = {"name": t["name"].text or "", "icon": int(t["filterIcon"].text),
               "icon_color": int(t["filterIconColor"].text), "description": t["description"].text or "",
               "version": t["lastModifiedInVersion"].text or ""}

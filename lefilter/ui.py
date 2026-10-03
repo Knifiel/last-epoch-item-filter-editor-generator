@@ -37,7 +37,7 @@ from .starter import (PARTS, TEMPLATE_PARTS, add_missing_sections, class_hide_sp
                       new_from_template, refresh_generated, restore_section, sync_template, template_stamp,
                       write_generated_template, write_template)
 from .matcher import Context, evaluate
-from .rules import ConfigError, build_slot_filters, class_hide_name, read_config
+from .rules import ConfigError, build_slot_filters, class_hide_name, read_config, unique_kind
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 FILE_RE = re.compile(r"^[^/\\:*?\"<>|]+\.xml$", re.I)
@@ -152,6 +152,8 @@ class Api:
             "uniques": [{**{k: u[k] for k in ("id", "name", "base_type", "base_type_name", "sub_type", "level", "lpl",
                                                "is_set", "weavers_will")},
                          "is_primordial": bool(u.get("is_primordial")), "is_cocooned": bool(u.get("is_cocooned")),
+                         "kind": unique_kind(u),   # the picker's "show only" filters
+                         "set_id": u.get("set_id", 0),
                          "tooltip": u.get("tooltip"), "rolls": u.get("rolls") or [], "lore": u.get("lore", ""),
                          "hidden": bool(u.get("hidden"))}
                         for u in d["uniques"]],
@@ -171,6 +173,8 @@ class Api:
                                     toggle_affixes({}, d["affixes"], c, [t.key for t in TOGGLES]).items()}
                                 for c in ("", *gamedata.CLASSES)},
             "sections": {s: {"key": key, "types": types} for s, (key, types) in SECTIONS.items()},
+            # set id -> {name, items, bonuses}: the picker's group by set, set items' tooltips
+            "sets": {s["id"]: {"name": s["name"], "items": s.get("items", []), "bonuses": s.get("bonuses", [])} for s in d.get("sets", [])},
             "class_hide_name": class_hide_name(self.config),   # the template's rule waiting for the classes to hide
             "build_slot_filters": build_slot_filters(self.config, d["uniques"]),   # slot name -> its picker's filter
             "bis": {"slots": [{"key": k, "label": label, "types": list(types)} for k, label, types in bis.SLOTS],

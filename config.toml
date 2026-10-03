@@ -342,13 +342,14 @@ rules = [
 ]
 
 # --- every unique idol the rules above let through (e.g. common 0LP ones) ----------
+# Off by default: unique idols are in those drop-rarity rules too. Switch it on to show the rest of them.
 
 [[group]]
 name = "UNIQUE IDOLS"
 categories = ["common", "uncommon", "rare", "very_rare", "extremely_rare", "special", "primordial", "weaver"]
 base_types = ["IDOLS"]
 rules = [
-  { label = "show all" },
+  { label = "show all", enabled = false },
 ]
 
 # --- set items: no LP, so only drop rarity matters (game's default set colour) -------

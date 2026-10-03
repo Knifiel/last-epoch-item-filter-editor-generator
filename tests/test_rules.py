@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from lefilter.rules import (UPDATED_AFFIX_RULES, UPDATED_CLASS_HIDE_NAME, UPDATED_EXALTED_RULES, UPDATED_GROUP_RULES, ConfigError, RuleSpec, build_slot_filters, categorize, plan_rules,
+from lefilter.rules import (UPDATED_AFFIX_RULES, UPDATED_CLASS_HIDE_NAME, UPDATED_EXALTED_RULES, UPDATED_GROUP_RULES, ConfigError, RuleSpec, build_slot_filters, categorize, plan_rules, unique_kind,
                             released_defaults, upgrade_config)
 
 THRESHOLDS = {"uncommon": 0.25, "rare": 0.5, "very_rare": 0.75, "extremely_rare": 0.95}
@@ -32,6 +32,13 @@ def test_categorize_flags_take_precedence_over_rarity():
     assert categorize(unique(1, "x", set=True), THRESHOLDS) == "set_common"
     assert categorize(unique(1, "x", set=True, reroll=0.7), THRESHOLDS) == "set_rare"
     assert categorize(unique(1, "x", set=True, random=False), THRESHOLDS) == "set_special"
+
+
+def test_unique_kind_sorts_as_categorize_does_before_drop_rarity():
+    assert unique_kind(unique(1, "x", reroll=0.9)) == "random" and unique_kind(unique(1, "x", random=False)) == "non_random"
+    assert unique_kind(unique(1, "x", random=False, primordial=True)) == "primordial"
+    assert unique_kind(unique(1, "x", ww=True, random=False)) == "weaver"
+    assert unique_kind(unique(1, "x", set=True, ww=True)) == "set"
 
 
 def config(*groups):
@@ -65,17 +72,23 @@ def test_only_matches_names_loosely_and_empty_only_is_skipped_silently():
     assert plan.warnings == []
 
 
-def test_build_slot_filters_name_the_weaver_and_primordial_slots():
-    uniques = [*UNIQUES, unique(6, "First One", random=False, primordial=True), unique(7, "Cocooned Club", cocooned=True)]
+def test_build_slot_filters_name_each_kind_of_unique_slot():
+    uniques = [*UNIQUES, unique(6, "First One", random=False, primordial=True), unique(7, "Cocooned Club", cocooned=True),
+               unique(8, "Set Ring", set=True)]
     cfg = {**config(
-        {"name": "RANDOM", "header": "--- RANDOM DROPS ---", "categories": ["common"], "rules": [{}]},
+        {"name": "RANDOM", "header": "--- RANDOM DROPS ---", "categories": ["common", "rare"], "rules": [{}]},
+        {"name": "SPECIAL", "header": "--- NON-RANDOM DROPS ---", "categories": ["special"], "rules": [{}]},
         {"name": "WEAVER", "header": "--- WEAVER'S WILL ---", "categories": ["weaver"], "rules": [{}]},
         {"name": "PRIMORDIAL", "header": "--- PRIMORDIAL / COCOONED ---", "categories": ["primordial"], "rules": [{}]},
         {"name": "COCOONED", "categories": ["cocooned"], "rules": [{}]},
         {"name": "LET THROUGH", "categories": ["special"], "rules": [{}]},   # no header: joins the primordial section
+        {"name": "SETS", "header": "------- SET ITEMS -------", "categories": ["set_common", "set_rare"], "rules": [{}]},
     ), "build_slots": {"add": True}}
-    assert build_slot_filters(cfg, uniques) == {"[A] EDIT FOR YOUR BUILD - WEAVER'S WILL": "weaver",
-                                                "[A] EDIT FOR YOUR BUILD - PRIMORDIAL / COCOONED": "primordial"}
+    assert build_slot_filters(cfg, uniques) == {"[A] EDIT FOR YOUR BUILD - RANDOM DROPS": "random",
+                                                "[A] EDIT FOR YOUR BUILD - NON-RANDOM DROPS": "non_random",
+                                                "[A] EDIT FOR YOUR BUILD - WEAVER'S WILL": "weaver",
+                                                "[A] EDIT FOR YOUR BUILD - PRIMORDIAL / COCOONED": "primordial",
+                                                "[A] EDIT FOR YOUR BUILD - SET ITEMS": "set"}
     assert build_slot_filters({}, uniques) == {}   # a broken config: no filters, no error
 
 

@@ -197,6 +197,20 @@ def test_unique_tooltip_in_game_order():
     assert text(lines[2]) == "+10 Health" and not lines[2]["roll"] and len(lines) == 3      # hidden mod left out
 
 
+def test_set_bonuses_in_game_order_with_the_pieces_they_need():
+    from lefilter.affixtext import set_bonuses
+    bonus = lambda prop, value, pieces, hide=False: {"property": prop, "tags": 0, "specialTag": 0, "extraTag": 0, "type": ADDED,
+                                                     "value": value, "setRequirement": pieces, "hideInTooltip": hide}
+    entry = {"setID": 1, "setName": "Isadora's", "mods": [bonus(7, 1, 3, hide=True), bonus(7, 20, 3)],
+             "tooltipDescriptions": [{"description": "+30% Mana Efficiency", "setRequirement": 3},
+                                     {"description": "Damned on hit", "setRequirement": 2}],
+             "tooltipEntries": [{"modDisplay": 129}, {"modDisplay": 1}, {"modDisplay": 128}, {"modDisplay": 0}]}
+    lines = set_bonuses(entry, LISTS, TABLES)
+    assert lines[0] == {"text": "Damned on hit", "desc": 1, "set": 2}
+    assert text(lines[1]) == "+20 Health" and lines[1]["set"] == 3
+    assert lines[2] == {"text": "+30% Mana Efficiency", "desc": 0, "set": 3} and len(lines) == 3   # the described mod: out
+
+
 def test_unique_rolls_offer_hidden_and_fixed_mods_like_the_game():
     from lefilter.affixtext import unique_rolls
     mod = lambda prop, lo, hi, roll, rid, hide=False: {"property": prop, "tags": 0, "specialTag": 0, "extraTag": 0,

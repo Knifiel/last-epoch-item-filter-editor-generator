@@ -126,6 +126,9 @@ function applyLanguage(en, tr) {
     }
     if (tr?.base_types[u.base_type]) u.base_type_name = tr.base_types[u.base_type];
   }
+  for (const [id, texts] of Object.entries(tr?.set_bonuses || {})) {
+    texts.forEach((text, i) => { if (text && meta.sets?.[id]?.bonuses[i]) meta.sets[id].bonuses[i].text = text; });
+  }
   if (tr) {
     for (const k of meta.idol_kinds) {
       const sub = (id) => tr.subtypes[`${k.type_id}/${id}`];
@@ -207,9 +210,9 @@ function affixFilterBar(f, affixes, redraw, all = affixes) {
         h("div", { class: "seg" }, [["category", "by category"], ["name", "by name"]].map(([k, label]) =>
           h("button", { class: f.sort === k ? "on" : "", onclick: change(() => { f.sort = k; }) }, label))),
         f.cats.size ? h("button", { onclick: change(() => f.cats.clear()) }, "All categories") : null),
-      [...heads].map(([head, cats]) => h("div", { class: "chips compact" }, h("span", { class: "hint cat" }, head),
+      [...heads].map(([head, cats]) => h("div", { class: "chips compact" }, h("span", { class: "hint cat" }, head), h("span", { class: "chip-row" },
         cats.map(([key, name]) => chipToggle(name, f.cats.has(key),
-          change(() => { if (f.cats.has(key)) f.cats.delete(key); else f.cats.add(key); }), `${counts.get(key) || 0}`)))));
+          change(() => { if (f.cats.has(key)) f.cats.delete(key); else f.cats.add(key); }), `${counts.get(key) || 0}`))))));
   };
   draw();
   return box;
@@ -1520,6 +1523,10 @@ function showTip(e, content, touch = false) {
   if (!tipEl) { tipEl = h("div", { class: "tip" }); document.body.append(tipEl); }
   fill(tipEl, content);
   tipEl.style.display = "block";
+  placeTip(e, touch);
+}
+/** Moves the shown tip to e's position (as showTip places it). */
+function placeTip(e, touch = false) {
   const pad = 14, r = tipEl.getBoundingClientRect();
   let x = e.clientX + pad, y = e.clientY + pad;
   if (touch) {
@@ -1580,37 +1587,53 @@ function withTip(el, content) {
 }
 
 /** Touch screens: pressing and holding an element shows its tooltip - its withTip one, else its title
- *  (what a button does) - until the next touch. Lifting that finger doesn't click; scrolling cancels. */
+ *  (what a button does) - until the next touch; sliding the held finger shows the tooltips of what it passes
+ *  over. Lifting that finger doesn't click; moving before the tip shows scrolls as usual. */
 function wireTouchTips() {
-  const HOLD_MS = 450, SLOP = 10;
+  const HOLD_MS = 450, SLOP = 10, TEXT_FIELDS = "input:not([type=checkbox], [type=radio]), textarea";
   let timer = null, at = null, held = false, swallowUntil = 0;
+  let shown = null;   // the element whose tip the held finger shows (sliding it changes this)
+  // An element with both (e.g. a base chip marked "not a Sentinel base") shows its title under the tooltip,
+  // as a mouse would get both.
+  const contentOf = (el) => {
+    const tip = TIPS.get(el), title = el.getAttribute("title");
+    return tip ? [tip(), title ? h("div", { class: "tip-text tip-note" }, title) : null] : h("div", { class: "tip-text" }, title);
+  };
   const cancel = () => { clearTimeout(timer); timer = null; };
   const swallowing = () => held || performance.now() < swallowUntil;
   const release = () => { cancel(); if (held) { held = false; swallowUntil = performance.now() + 700; } };
   document.addEventListener("pointerdown", (e) => {
     swallowUntil = 0;   // a new press (touch or mouse) does what it does
     if (e.pointerType !== "touch") return;
-    hideTip(); cancel(); held = false;   // and a touch closes the shown tip
+    hideTip(); cancel(); held = false; shown = null;   // and a touch closes the shown tip
     // Text fields keep their own long press (select, paste).
-    const owner = e.isPrimary && !e.target.closest("input:not([type=checkbox], [type=radio]), textarea") && tipOwner(e.target, true);
+    const owner = e.isPrimary && !e.target.closest(TEXT_FIELDS) && tipOwner(e.target, true);
     if (!owner) return;
     if (!store.get("touch-tip-hint", false)) {
       store.set("touch-tip-hint", true);
-      toast("On a touch screen, press and hold for an item's or affix's details and what a button does (what hovering shows with a mouse).");
+      toast("On a touch screen, press and hold for an item's or affix's details and what a button does (what hovering shows with a mouse) - then slide your finger to see the others'.");
     }
     at = { clientX: e.clientX, clientY: e.clientY };
     timer = setTimeout(() => {
-      timer = null; held = true;
+      timer = null; held = true; shown = owner;
       getSelection()?.removeAllRanges();
-      // An element with both (e.g. a base chip marked "not a Sentinel base") shows its title under the tooltip,
-      // as a mouse would get both.
-      const tip = TIPS.get(owner), title = owner.getAttribute("title");
-      showTip(at, tip ? [tip(), title ? h("div", { class: "tip-text tip-note" }, title) : null] : h("div", { class: "tip-text" }, title), true);
+      showTip(at, contentOf(owner), true);
     }, HOLD_MS);
   }, true);
   document.addEventListener("pointermove", (e) => {
-    if (timer && e.pointerType === "touch" && Math.hypot(e.clientX - at.clientX, e.clientY - at.clientY) > SLOP) cancel();
+    if (e.pointerType !== "touch") return;
+    if (timer && Math.hypot(e.clientX - at.clientX, e.clientY - at.clientY) > SLOP) cancel();   // a swipe: it scrolls
+    if (!held) return;
+    // The held finger slides: the tip of what's under it now (the touch keeps its first element as the target).
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const owner = under && !under.closest(TEXT_FIELDS) ? tipOwner(under, true) : null;
+    if (owner !== shown) {
+      shown = owner;
+      if (owner) showTip(e, contentOf(owner), true); else hideTip();
+    } else if (owner) placeTip(e, true);
   }, true);
+  // While a hold shows tips, sliding doesn't scroll the page (non-passive, or the browser couldn't be stopped).
+  document.addEventListener("touchmove", (e) => { if (held && e.cancelable) e.preventDefault(); }, { capture: true, passive: false });
   for (const type of ["pointerup", "pointercancel"]) {
     document.addEventListener(type, (e) => { if (e.pointerType === "touch") release(); }, true);
   }
@@ -1812,14 +1835,29 @@ function uniqueTip(u) {
   return h("div", { class: "base-tip unique-tip" },
     h("div", { class: "tip-title" + (u.is_set ? " set" : "") }, u.name),
     h("div", { class: "hint" }, [base?.name, sub?.name, `Requires Level ${u.level}`,
-      u.weavers_will ? "Weaver's Will" : `LP level ${u.lpl}`, u.is_set ? "set item" : null].filter(Boolean).join(" · ")),
+      // no LP level where it means nothing: set items never roll legendary potential, cocooned items only hold a unique
+      u.weavers_will ? "Weaver's Will" : u.is_set || u.is_cocooned ? null : `LP level ${u.lpl}`, u.is_set ? "set item" : null,
+      u.is_cocooned ? "cocooned" : null].filter(Boolean).join(" · ")),
     sub?.implicits?.length ? [h("div", { class: "tip-head" }, "Implicits"),
       sub.implicits.map((line) => h("div", { class: "tip-line" }, lineText(line, tierRangeText(line, 0, 1))))] : null,
     u.tooltip?.length ? [h("div", { class: "tip-head" }, "Modifiers"),
       u.tooltip.map((l) => ("desc" in l
         ? h("div", { class: "tip-line" + (l.set ? " set" : "") }, (l.set ? `(${l.set} set pieces) ` : "") + uniqueDescText(l.text))
         : h("div", { class: "tip-line" }, lineText(l, tierRangeText(l, 0, 1)))))] : h("div", { class: "hint" }, "Modifiers not extracted"),
+    setBonusesTip(u),
     u.lore ? h("div", { class: "lore" }, u.lore) : null);
+}
+/** A set item's set bonuses, as the game's tooltip shows them in a block of their own: each with the set pieces it
+ *  needs ("(2): ..."), and the set's items. */
+function setBonusesTip(u) {
+  const set = u.is_set ? S.meta.sets?.[u.set_id] : null;
+  if (!set) return null;
+  const items = set.items.map((id) => M.unique.get(id)?.name).filter(Boolean);
+  return [h("div", { class: "tip-head" }, "Set bonuses"),
+    h("div", { class: "hint" }, `${set.name} set${items.length ? `: ${items.join(", ")}` : ""}`),
+    set.bonuses.length ? set.bonuses.map((l) => h("div", { class: "tip-line set" }, `(${l.set}): `,
+      "desc" in l ? uniqueDescText(l.text) : lineText(l, tierRangeText(l, 0, 1))))
+      : h("div", { class: "hint" }, "No set bonuses")];
 }
 function withUniqueTip(el, u) {
   return u ? withTip(el, () => uniqueTip(u)) : el;
@@ -1827,13 +1865,15 @@ function withUniqueTip(el, u) {
 
 /** Per-condition picker state: item types to list (none = all), the "show only" filter and the search text. */
 const UNIQUE_PICKER = new WeakMap();
-/** The uniques picker's "show only" filters: [key, label, test]. A build slot's picker starts with its
- *  section's one switched on (meta.build_slot_filters: the Weaver's Will and primordial slots). */
-const UNIQUE_KINDS = [["weaver", "Weaver's Will", (u) => u.weavers_will], ["primordial", "Primordial", (u) => u.is_primordial]];
+/** The uniques picker's "show only" filters, in the template's section order: [unique kind (meta.uniques[].kind),
+ *  label]. A build slot's picker starts with its section's one switched on (meta.build_slot_filters). Set items
+ *  are their own rarity: a set slot (rarity Set) only matches them, the other slots (rarity Unique) never do. */
+const UNIQUE_KINDS = [["weaver", "Weaver's Will"], ["random", "Random drops"], ["non_random", "Non-random drops"],
+  ["primordial", "Primordial"], ["set", "Set items"]];
 
 /** A picked unique with its required roll ranges: one per roll, as in-game - the rolls the game's
  *  picker offers, hidden effect rolls included; each mod on a roll converts in its own units. */
-function pickedUnique(c, u, re) {
+function pickedUnique(c, u, re, never = null) {
   const meta = M.unique.get(u.id);
   const groups = new Map();
   for (const l of meta?.rolls || []) (groups.get(l.roll_id) || groups.set(l.roll_id, []).get(l.roll_id)).push(l);
@@ -1862,6 +1902,7 @@ function pickedUnique(c, u, re) {
   const set = (S.uniqOpen ||= new Set());
   const limited = u.rolls.filter(restricts).length;
   const summary = h("summary", {}, withUniqueTip(h("span", { class: "uniq-name" }, uniqueName(u.id)), meta),
+    never ? h("span", { class: "badge miss", title: never }, "never matches") : null,
     h("span", { class: "hint" }, groups.size ? ` · ${limited ? `${limited} of ${groups.size} rolls limited` : `${groups.size} rolls, any`}` : " · no rolls"),
     h("button", { class: "uniq-x", title: "remove", onclick: (e) => { e.preventDefault(); hideTip(); mutate(() => { c.uniques = c.uniques.filter((x) => x !== u); }, re); } }, "×"));
   return h("details", { class: "uniq-picked", open: set.has(u.id) || null, ontoggle: (e) => set[e.target.open ? "add" : "delete"](u.id) },
@@ -1888,38 +1929,67 @@ function pickedUnique(c, u, re) {
 
 function uniquesEditor(c, rule) {
   const re = { editor: true };
-  const state = UNIQUE_PICKER.get(c) || { types: new Set(), q: "", kind: S.meta.build_slot_filters?.[rule?.name] || null };
+  const state = UNIQUE_PICKER.get(c) || { types: new Set(), q: "", kind: S.meta.build_slot_filters?.[rule?.name] || null, bySet: false };
   UNIQUE_PICKER.set(c, state);
   const sel = new Set(c.uniques.map((u) => u.id));
   const listed = S.meta.uniques.filter((u) => !u.hidden);   // as in-game: no uniques hidden from players
-  const ofKind = (u) => !state.kind || UNIQUE_KINDS.find(([k]) => k === state.kind)?.[2](u);
+  const ofKind = (u) => !state.kind || u.kind === state.kind;
+  // As the in-game picker: the uniques by item slot, then the set items by item slot (slots in the type chips' order)
+  const rank = new Map(basesByCategory().flatMap(([, bases]) => bases).map((b, i) => [b.id, i]));
+  const setName = (u) => S.meta.sets?.[u.set_id]?.name;
   const items = listed
-    .map((u) => ({ id: u.id, u, label: u.name, alt: u.en_name, group: u.base_type_name || "", type: u.base_type,
-      meta: `${u.is_set ? "set · " : ""}${u.weavers_will ? "WW · " : ""}${u.is_primordial ? "primordial · " : ""}`
-        + `${u.is_cocooned ? "cocooned · " : ""}LPL ${u.lpl}`, tip: () => uniqueTip(u) }))
-    .sort((a, b) => a.group.localeCompare(b.group) || a.label.localeCompare(b.label));
+    .map((u) => ({ id: u.id, u, label: u.name, alt: u.en_name, group: `${u.is_set ? "Sets" : "Uniques"} · ${u.base_type_name || ""}`,
+      setGroup: setName(u) ? `${setName(u)} set` : `Sets · ${u.base_type_name || ""}`,
+      type: u.base_type, meta: [u.is_set && "set", u.weavers_will && "WW", u.is_primordial && "primordial", u.is_cocooned && "cocooned",
+        !u.is_set && !u.is_cocooned && `LPL ${u.lpl}`].filter(Boolean).join(" · "), tip: () => uniqueTip(u) }))
+    .sort((a, b) => (a.u.is_set - b.u.is_set) || ((rank.get(a.type) ?? 999) - (rank.get(b.type) ?? 999)) || a.label.localeCompare(b.label));
+  // The game lists both whatever the rule's Rarity, but a Unique rarity never matches a set item, nor a Set one a unique.
+  const rarity = rule?.conditions.find((x) => x.type === "RarityCondition" && !x.raw)?.rarity;
+  const never = (u) => (!rarity || !u || rarity.includes(u.is_set ? "SET" : "UNIQUE") ? null
+    : `Never matches: ${u.is_set ? "a set item" : "a unique"}, and this rule's Rarity has no ${u.is_set ? "Set" : "Unique"} `
+      + `(tick it there, or put the item in a rule that has it).`);
+  const misses = c.uniques.filter((x) => never(M.unique.get(x.id)));
+  const noMatch = rarity ? [["UNIQUE", "uniques"], ["SET", "set items"]].filter(([r]) => !rarity.includes(r)).map(([, w]) => w) : [];
+  // Set items only: grouped by set (sets in alphabetical order, each set's items by slot) instead of by item slot
+  const bySet = () => state.kind === "set" && state.bySet && Object.keys(S.meta.sets || {}).length > 0;
+  const shownItems = () => {
+    const list = items.filter((it) => ofKind(it.u) && (!state.types.size || state.types.has(it.type)));
+    return bySet() ? list.map((it) => ({ ...it, group: it.setGroup })).sort((a, b) => a.group.localeCompare(b.group)
+      || ((rank.get(a.type) ?? 999) - (rank.get(b.type) ?? 999)) || a.label.localeCompare(b.label)) : list;
+  };
   const chipsBox = h("div", { class: "uniq-types" }), pickerBox = h("div", {});
-  const drawPicker = () => fill(pickerBox, searchPicker(items.filter((it) => ofKind(it.u) && (!state.types.size || state.types.has(it.type))),
-    (id) => sel.has(id), (ids) => mutate(() => {
+  const drawPicker = () => {
+    const list = shownItems();
+    const unmatched = list.filter((it) => never(it.u) && !sel.has(it.id)).length;
+    fill(pickerBox, unmatched ? h("p", { class: "hint" }, `This rule's Rarity has no ${noMatch.map((w) => (w === "uniques" ? "Unique" : "Set")).join(" or ")}: `
+      + `${unmatched} of the entries listed below (the game lists them too) won't match it.`) : null,
+    searchPicker(list, (id) => sel.has(id), (ids) => mutate(() => {
       c.uniques = [...c.uniques, ...ids.filter((i) => !sel.has(i)).map((id) => ({ id, rolls: [] }))];
     }, re), "Search uniques / sets to add…", { query: state.q, onQuery: (q) => { state.q = q; } }));
+  };
   const drawChips = () => {
     chipsBox.replaceChildren();
     const counts = new Map();   // per item type, of the uniques the "show only" filter leaves
     for (const u of listed) if (ofKind(u)) counts.set(u.base_type, (counts.get(u.base_type) || 0) + 1);
     put(chipsBox,
-      h("div", { class: "chips compact" }, h("span", { class: "hint cat" }, "Show only"),
-        UNIQUE_KINDS.map(([k, label, test]) => chipToggle(`${label} uniques`, state.kind === k, () => {
+      h("div", { class: "chips compact" }, h("span", { class: "hint cat" }, "Show only"), h("span", { class: "chip-row" },
+        UNIQUE_KINDS.map(([k, label]) => chipToggle(label, state.kind === k, () => {
           state.kind = state.kind === k ? null : k;
+          if (state.kind !== "set") state.bySet = false;   // back to the item slots
           drawChips(); drawPicker();
-        }, `${listed.filter(test).length}`))),
+        }, `${listed.filter((u) => u.kind === k).length}`)))),
+      state.kind === "set" && Object.keys(S.meta.sets || {}).length ? h("div", { class: "chips compact" }, h("span", { class: "hint cat" }, "Group"),
+        h("span", { class: "chip-row" }, [[false, "by item slot"], [true, "by set"]].map(([v, label]) => chipToggle(label, state.bySet === v, () => {
+          state.bySet = v;
+          drawChips(); drawPicker();
+        })))) : null,
       basesByCategory().map(([cat, bases]) => {
         const here = bases.filter((b) => counts.get(b.id) || state.types.has(b.id));
-        return here.length ? h("div", { class: "chips compact" }, h("span", { class: "hint cat" }, cat),
+        return here.length ? h("div", { class: "chips compact" }, h("span", { class: "hint cat" }, cat), h("span", { class: "chip-row" },
           here.map((b) => chipToggle(b.name, state.types.has(b.id), () => {
             if (state.types.has(b.id)) state.types.delete(b.id); else state.types.add(b.id);
             drawChips(); drawPicker();
-          }, `${counts.get(b.id) || 0}`))) : null;
+          }, `${counts.get(b.id) || 0}`)))) : null;
       }),
       state.types.size ? h("button", { onclick: () => { state.types.clear(); drawChips(); drawPicker(); } }, "All types") : null);
   };
@@ -1927,8 +1997,11 @@ function uniquesEditor(c, rule) {
   drawPicker();
   const rolled = c.uniques.filter((u) => u.rolls.some(restricts)).length;
   return h("div", {},
-    c.uniques.length ? h("div", { class: "uniq-list" }, c.uniques.map((u) => pickedUnique(c, u, re)))
+    c.uniques.length ? h("div", { class: "uniq-list" }, c.uniques.map((u) => pickedUnique(c, u, re, never(M.unique.get(u.id)))))
       : h("span", { class: "hint" }, "Empty: add uniques here or in-game."),
+    misses.length ? h("div", { class: "row" }, h("span", { class: "warn" }, `⚠ ${misses.length} of them can never match: this rule's Rarity `
+      + `has no ${noMatch.length > 1 ? "Unique or Set" : noMatch[0] === "uniques" ? "Unique" : "Set"}.`),
+      h("button", { onclick: () => mutate(() => { c.uniques = c.uniques.filter((x) => !never(M.unique.get(x.id))); }, re) }, "Remove them")) : null,
     rolled ? h("p", { class: "hint" }, `${rolled} of them need certain rolls: open one to see or change its roll ranges.`) : null,
     c.uniques.length ? h("div", { class: "row" }, h("button", { onclick: () => mutate(() => { c.uniques = []; }, re) }, "Remove all")) : null,
     h("div", { class: "group-label" }, "Add uniques - quick filters"), chipsBox, pickerBox);
@@ -3115,8 +3188,8 @@ function renderBisEditor() {
           copyTo(v === "*" ? others : others.filter((x) => x.key === v));
         } }, "Copy")];
       })()),
-    s.affixes.length ? h("div", { class: "selected-list" }, groupedChips(s.affixes, (id) => h("span", { class: "chip on" }, affixName(id), affixPill(id),
-      h("button", { title: "remove", onclick: () => flip(s.affixes, id) }, "×")))) : null,
+    s.affixes.length ? h("div", { class: "selected-list" }, groupedChips(s.affixes, (id) => withAffixTip(h("span", { class: "chip on" }, affixName(id), affixPill(id),
+      h("button", { title: "remove", onclick: () => { hideTip(); flip(s.affixes, id); } }, "×")), M.affix.get(id), typeIds))) : null,
     unknown.length ? h("p", { class: "hint" }, `${unknown.length} picked affix${unknown.length > 1 ? "es" : ""} can't roll on the ticked item types (or the class); `
       + "they only count where they roll.") : null,
     offered.length ? affixFilterBar(f, offered, draw) : null,

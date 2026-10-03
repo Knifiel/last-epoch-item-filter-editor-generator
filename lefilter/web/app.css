@@ -99,6 +99,8 @@ main { flex: 1; min-height: 0; }
 .badge.show { border-color: #2f5f37; color: #8fd99a; }
 /* rules to fill in for a build: optional, so pointed out in the info colour, never as an error */
 .badge.todo { border-color: #2f5577; color: var(--accent); white-space: nowrap; flex: none; }
+/* a picked unique / set item the rule's Rarity can never match */
+.badge.miss { border-color: #6b5a2a; color: var(--warn); white-space: nowrap; flex: none; margin-left: 4px; }
 .rule-row.todo { box-shadow: inset 3px 0 0 var(--accent); }
 .todo-notice { display: flex; gap: 8px; align-items: center; margin: 6px 10px; font-size: 12px; color: var(--muted); }
 .todo-notice button { margin-left: auto; padding: 2px 8px; flex: none; }
@@ -288,6 +290,9 @@ body { max-width: 2560px; margin: 0 auto; width: 100%; }
 .uniq-types .chips.compact { gap: 3px; margin: 2px 0; align-items: center; }
 .uniq-types .chips.compact .chip { font-size: 11px; padding: 1px 7px; }
 .uniq-types .cat { font-size: 10px; text-transform: uppercase; min-width: 112px; }
+/* a row's chips wrap under each other, not under its label */
+.uniq-types .chips.compact { flex-wrap: nowrap; }
+.uniq-types .chip-row { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; min-width: 0; }
 .affix-cats { margin: 4px 0 6px; }
 .affix-cats > .row { margin-bottom: 2px; }
 .uniq-list { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; }

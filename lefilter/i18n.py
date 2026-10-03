@@ -64,6 +64,11 @@ def build_language(tables: dict[str, dict[str, str]], data: dict, code: str = ""
         lore = names.get(f"Unique_Lore_{u['id']}")
         if any(lines) or any(rolls) or lore:   # None: the English text stays
             out["unique_tooltips"][u["id"]] = {"lines": lines, "rolls": rolls, "lore": lore}
+    out["set_bonuses"] = {}   # set id -> its bonus lines (None: the English text stays; written ones have no translation)
+    for st in data.get("sets", []):
+        texts = [None if "desc" in line else affixtext.resolve(line.get("source"), tables, words, prefs) for line in st["bonuses"]]
+        if any(texts):
+            out["set_bonuses"][st["id"]] = texts
     for b in data["bases"]:
         if names.get(f"Item_BaseType_Name_{b['id']}"):
             out["base_types"][b["id"]] = names[f"Item_BaseType_Name_{b['id']}"]
