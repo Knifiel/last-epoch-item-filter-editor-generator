@@ -1,7 +1,7 @@
 from lefilter.affixtext import (ADDED, HUNDREDTH, INCREASED, INTEGER, MORE, PREFIX_ADDED_TO, PREFIX_INCREASED,
                                 PREFIX_LESS, PREFIX_NONE, PREFIX_PERCENT_OF, PREFIX_REDUCED, TENTH, THOUSANDTH,
-                                PropertyLists, affix_lines, display, format_line, format_value, prefix_type, resolve,
-                                rounding)
+                                PropertyLists, affix_lines, display, format_line, format_value, implicit_lines, prefix_type,
+                                resolve, rounding)
 from lefilter.i18n import build_language, clean, strip_value_tag
 
 LISTS = PropertyLists(
@@ -150,7 +150,9 @@ def test_translation_cleanup_and_overlay():
     assert clean("[fs]maudite[ms]maudit[fp]maudites[mp]maudits") == "maudit"
     assert clean("{【ルーンボルト】}の詠唱") == "【ルーンボルト】の詠唱"
     assert clean("화염 피해 {0} 증가") == "화염 피해 {0} 증가" and strip_value_tag("화염 피해 {0} 증가") == "화염 피해 증가"
-    data = {"uniques": [{"id": 42}], "bases": [{"id": 16, "subtypes": [{"id": 0}]}],
+    data = {"uniques": [{"id": 42}],
+            "bases": [{"id": 16, "subtypes": [{"id": 0, "implicits": [{"source": ["Descriptors", "7,0,0,0", 0]},
+                                                                      {"source": None}]}, {"id": 1}]}],
             "affixes": [{"id": 35, "lines": [{"source": ["Descriptors", "59,4,0,0", 0]}]},
                         {"id": 46, "lines": [{"source": ["Descriptors", "30,0,0,2", PREFIX_ADDED_TO]}]},
                         {"id": 1, "filter_name": True, "lines": [{"source": None}]}]}
@@ -158,11 +160,58 @@ def test_translation_cleanup_and_overlay():
                              "Item_SubType_Name_16_0": "Bastardschwert"},
               "Item_Affixes": {"Item_Affix_35_DisplayName": "Kältedurchdringung", "Item_Affix_1_DisplayName": "Rüstung",
                                "Item_Affix_1_FilterOverride": "Erhöhte Rüstung"},
-              "Descriptors": {"59,4,0,0": "Kältedurchdringung", "30,0,0,2": "alle Widerstände"},
+              "Descriptors": {"59,4,0,0": "Kältedurchdringung", "30,0,0,2": "alle Widerstände", "7,0,0,0": "Gesundheit"},
               "Common": {"ModFormat_AddedToPrefix_To": "auf"}}
     lang = build_language(tables, data, "de")
     assert lang["uniques"] == {42: "Fackel"} and lang["base_types"] == {16: "Zweihandschwert"}
     assert lang["subtypes"] == {"16/0": "Bastardschwert"}
     assert lang["affixes"] == {35: "Kältedurchdringung", 1: "Erhöhte Rüstung"}     # the filter picker's name
     assert lang["lines"] == {35: ["Kältedurchdringung"], 46: ["auf alle Widerstände"]}
+    assert lang["implicits"] == {"16/0": ["Gesundheit", None]}                       # None: English stays
     assert lang["value_after"] is False and build_language(tables, data, "ko")["value_after"] is True
+
+
+def test_implicits_read_like_affix_stats_with_their_roll_range():
+    def imp(prop, tags, mod, lo, hi, special=0):
+        return {"property": prop, "tags": tags, "specialTag": special, "extraTag": 0, "type": mod,
+                "implicitValue": lo, "implicitMaxValue": hi}
+    health, fire, pen = implicit_lines([imp(7, 0, ADDED, 30, 40), imp(0, 8, INCREASED, -0.12, -0.02),
+                                        imp(59, 4, ADDED, 0.04, 0.04)], LISTS, TABLES)
+    assert text(health) == "+30-40 Health" and health["source"] == ["Descriptors", "7,0,0,0", 0]
+    assert text(fire) == "2-12% Reduced Fire Damage"          # negative increased: reduced, no sign
+    assert text(pen) == "+4% Cold Penetration"                 # a fixed implicit: one value
+
+
+def test_unique_tooltip_in_game_order():
+    from lefilter.affixtext import unique_tooltip
+    mod = lambda prop, lo, hi, roll, rid=0, hide=False: {"property": prop, "tags": 0, "specialTag": 0, "extraTag": 0, "type": ADDED,
+                                                          "value": lo, "maxValue": hi, "canRoll": roll, "rollID": rid,
+                                                          "hideInTooltip": hide}
+    unique = {"uniqueID": 7, "mods": [mod(7, 40, 60, True, 1), mod(7, 10, 0, False), mod(7, 5, 5, False, hide=True)],
+              "tooltipDescriptions": [{"description": "[10,20,2]% more fun", "setRequirement": 2}],
+              "tooltipEntries": [{"modDisplay": 128}, {"modDisplay": 0}, {"modDisplay": 1}, {"modDisplay": 2}]}
+    tables = {**TABLES, "Item_Names": {"Unique_Tooltip_0_7": "[10,20,2]% more fun (named)"}}
+    lines = unique_tooltip(unique, LISTS, tables)
+    assert lines[0] == {"text": "[10,20,2]% more fun (named)", "desc": 0, "set": 2}
+    assert text(lines[1]) == "+40-60 Health" and lines[1]["roll"] and (lines[1]["roll_id"], lines[1]["vmin"], lines[1]["vmax"]) == (1, 40, 60)
+    assert text(lines[2]) == "+10 Health" and not lines[2]["roll"] and len(lines) == 3      # hidden mod left out
+
+
+def test_unique_rolls_offer_hidden_and_fixed_mods_like_the_game():
+    from lefilter.affixtext import unique_rolls
+    mod = lambda prop, lo, hi, roll, rid, hide=False: {"property": prop, "tags": 0, "specialTag": 0, "extraTag": 0,
+                                                       "type": ADDED, "value": lo, "maxValue": hi, "canRoll": roll,
+                                                       "rollID": rid, "hideInTooltip": hide}
+    unique = {"uniqueID": 9, "mods": [mod(7, 40, 60, True, 1), mod(7, 5, 9, True, 0, hide=True), mod(7, 10, 0, True, 2),
+                                      mod(7, 3, 3, False, 3)],
+              "tooltipDescriptions": [{"description": "[5,9,0] stacks of fun", "setRequirement": 0}]}
+    rolls = unique_rolls(unique, LISTS, TABLES)
+    assert [(r["roll_id"], r["hidden"], r["varies"]) for r in rolls] == [(1, False, True), (0, True, True), (2, False, False)]
+    assert rolls[1]["desc"] == 0 and "desc" not in rolls[0]            # the hidden roll's value shows in description 0
+    assert (rolls[2]["vmin"], rolls[2]["vmax"]) == (10, 10)            # max below value: a fixed value
+
+
+def test_ranges_across_zero_keep_their_signs():
+    from lefilter.affixtext import stat_lines
+    line = stat_lines([{"property": 7, "tags": 0, "specialTag": 0, "type": ADDED, "lo": -20, "hi": 50}], LISTS, TABLES)[0]
+    assert line["signed"] and text(line) == "-20 to +50 Health"

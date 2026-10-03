@@ -23,7 +23,7 @@ except Exception:
 
 import UnityPy
 
-from . import affixtext, tools
+from . import affixtext, odin, tools
 from .game import Game, locale_bundles, prune_cache, snapshot
 from .i18n import TEXT_TABLES, write_languages
 from .gamedata import EQUIPMENT_TYPES, RARITY_COLOR_IDS
@@ -31,7 +31,7 @@ from .gamedata import EQUIPMENT_TYPES, RARITY_COLOR_IDS
 from .paths import SCHEMA_DIR           # optional hand-made type trees (checked after the cached ones)
 
 WEAVERS_WILL = 1  # UniqueList.LegendaryType.WeaversWill
-DATA_VERSION = 10  # bump when data/uniques.json gains fields, so `build` re-extracts
+DATA_VERSION = 15  # bump when data/uniques.json gains fields, so `build` re-extracts
 
 
 class ExtractError(Exception):
@@ -117,7 +117,29 @@ def read_property_list(snap: Path, schemas: list[Path], name: str = "MasterPrope
 PROPERTY_LISTS = {"PropertyList": ("MasterPropertyList", "propertyInfoList"),
                   "AbilityPropertyList": ("AbilityPropertyList", "list"),
                   "PlayerPropertyList": ("PlayerPropertyList", "list")}
-SCHEMA_CLASSES = ("UniqueList", *PROPERTY_LISTS)
+SCHEMA_CLASSES = ("UniqueList", *PROPERTY_LISTS, "IdolsContainerGridDataList")
+AFFIX_KINDS = {0: "prefix", 1: "suffix", 2: "special"}
+ALTAR_BLOCKED, ALTAR_REFRACTED = 99, 100   # IdolsContainerGridData.CellBlockedId / RefractedSlotIdJump
+
+
+def read_altar_grids(snap: Path, schemas: list[Path]) -> dict[int, list[list[int]]]:
+    """Idol altar subtype -> its idol grid as rows, top first: 0 = no slot, 1 = idol slot,
+    2 = refracted slot. IdolsContainerGridDataList keeps one int[,] per altar subtype (list index =
+    subtype, GetSubtypeData) in Odin's binary format, indexed [x, y] (BlockedCellsPositions)."""
+    env = UnityPy.load(str(snap / "resources.assets"))
+    obj = _find_monobehaviour(env, "IdolsContainerGridDataList")
+    raw = _read_with_schemas(obj, schemas, "IdolsContainerGridDataList")["serializationData"]["SerializedBytes"]
+    try:
+        top = odin.read(bytes(raw))
+        layouts = top.get("data")[0][1]
+        grids = {}
+        for subtype, (_, node) in enumerate(layouts):
+            m = odin.int_matrix(node.get("unlockMatrix"))   # m[x][y]
+            grids[subtype] = [[0 if m[x][y] == ALTAR_BLOCKED else 2 if m[x][y] >= ALTAR_REFRACTED else 1
+                               for x in range(len(m))] for y in range(len(m[0]))]
+    except (odin.OdinError, TypeError, IndexError, AttributeError) as e:
+        raise ExtractError(f"idol altar layouts not readable: {e}") from e
+    return grids
 
 
 def regenerate_schema(game: Game, cache_root: Path, cls: str = "UniqueList") -> Path:
@@ -211,8 +233,11 @@ def base_item_levels(items: dict) -> dict[tuple[int, int], dict]:
     }
 
 
-def build_bases(items: dict, names: dict[str, str]) -> list[dict]:
-    """Item types with their bases (sub types), as the loot filter's Item Type condition lists them."""
+def build_bases(items: dict, names: dict[str, str], lists: affixtext.PropertyLists | None = None,
+                tables: dict[str, dict[str, str]] | None = None, words: dict[int, str] | None = None) -> list[dict]:
+    """Item types with their bases (sub types), as the loot filter's Item Type condition lists them,
+    with what the editor's base tooltip shows: implicits (affixtext lines, empty without the stat
+    display rules) and, for weapons, base attack rate and added weapon range."""
     category = {tid: cat["name"]
                 for group in items["LootFilterVisualCategories"] for cat in group["categories"]
                 for tid in cat["entries"]}
@@ -235,6 +260,11 @@ def build_bases(items: dict, names: dict[str, str]) -> list[dict]:
                 "omen": sub["affixEffectiveness"] == 1,   # AffixEffectiveness.OmenIdol
                 # The enchanted versions of class idols (ItemList.IsHereticalIdol's table): crafted, never dropped.
                 "heretical": sub["name"].startswith("Heretical "),
+                # None: the stat display rules couldn't be read (the editor says "not extracted")
+                "implicits": affixtext.implicit_lines(sub.get("implicits") or [], lists, tables or {}, words)
+                if lists and lists.master else None,
+                **({"attack_rate": round(sub["attackRate"], 4), "range": round(sub["addedWeaponRange"], 4)}
+                   if base["isWeapon"] else {}),
             } for sub in base["subItems"]],
         })
     return bases
@@ -268,6 +298,7 @@ def build_affixes(data: dict, lists: affixtext.PropertyLists | None = None,
           "special": a["specialAffixType"],
           "idol": a["rollsOn"] == 1,
           "prefix": a["type"] == 0,
+          "kind": AFFIX_KINDS.get(a["type"], "special"),   # AffixList.AffixType
           "level": a["levelRequirement"],
           "weight": round(a["weighting"], 4),   # roll weighting: lower = rarer
           "rolls_on": sorted(a["canRollOn"]),
@@ -415,6 +446,13 @@ def extract(game: Game, cache_root: Path, out_path: Path, regen_schema: bool = F
     property_lists = affixtext.PropertyLists.from_game(lists.get("PropertyList"), lists.get("AbilityPropertyList"),
                                                        lists.get("PlayerPropertyList"), altar_list,
                                                        penetration_ailments)
+    by_id = {u["uniqueID"]: u for u in uniques}
+    item_names = tables.get("Item_Names", {})
+    for r in records:   # what the editor's unique tooltip shows
+        u = by_id[r["id"]]
+        r["tooltip"] = affixtext.unique_tooltip(u, property_lists, tables, words) if property_lists.master else None
+        r["rolls"] = affixtext.unique_rolls(u, property_lists, tables, words)
+        r["lore"] = (item_names.get(f"Unique_Lore_{r['id']}") or u.get("loreText") or "").strip()
     data = {
         "data_version": DATA_VERSION,
         "game_version": read_game_version(snap),
@@ -426,9 +464,18 @@ def extract(game: Game, cache_root: Path, out_path: Path, regen_schema: bool = F
         "uniques": records,
         "affixes": build_affixes(affix_list, property_lists, tables, words),
         "omen_affix_mod": round(items.get("omenIdolAffixEffectModifier", 0.0), 4),   # replaces the base's on omen idols
-        "bases": build_bases(items, names),
+        "bases": build_bases(items, names, property_lists, tables, words),
         "palette": build_palette(colors),
     }
+    try:   # the editor's altar tooltips: each altar's idol slots
+        grids = _read_or_regenerate(lambda s: read_altar_grids(snap, s), game, cache_root, "IdolsContainerGridDataList")
+        for b in data["bases"]:
+            if b["type"] == "IDOL_ALTAR":
+                for sub in b["subtypes"]:
+                    if sub["id"] in grids:
+                        sub["grid"] = grids[sub["id"]]
+    except Exception as e:
+        warnings.append(f"idol altar layouts not extracted: {e}")
     try:
         data["filter_icons"] = read_filter_icons(snap, out_path.parent / "filter_icons")
     except Exception as e:   # only the editor's icon picker needs them

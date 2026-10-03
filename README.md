@@ -20,8 +20,9 @@ You need Last Epoch installed through Steam (Windows, or Linux with Proton / Ste
 program reads all item data from **your own game installation** - no game data comes with it.
 
 1. Download the latest release from the [Releases page](../../releases/latest):
-   `LastEpochItemFilterEditor-windows.zip` or `LastEpochItemFilterEditor-linux.tar.gz`.
-2. Unpack it anywhere and start `LastEpochItemFilterEditor` (on Windows double-click the `.exe`;
+   `LEIFEG-windows.zip` or `LEIFEG-linux.tar.gz` (LEIFEG: Last Epoch Item Filter Editor /
+   Generator).
+2. Unpack it anywhere and start `LEIFEG` (on Windows double-click `LEIFEG.exe`;
    Windows may warn that it's from an unknown publisher - "More info" -> "Run anyway"; it isn't
    code-signed, and some antivirus programs flag unsigned one-file Python programs by mistake).
 3. A console window opens (on Linux a terminal window) and the editor opens in your browser.
@@ -50,9 +51,12 @@ on Windows and `~/.local/share/last-epoch-item-filter-editor` on Linux.
 - **New filter from a template**: legendary/unique and set rules grouped by drop rarity, LP and
   Weaver's Will, exalted and T8 rules, a BiS section, shatter rules, class item hide rules and a
   hide-everything-else rule, set up for the class you pick.
-- **[Leveling generator](#leveling-section)**: pick damage types, build focus, attributes and weapon
-  types; get campaign rules whose bases switch over every 10 levels, plus the good bases you pick
+- **[Leveling generator](#leveling-section)**: pick damage types, build focus, attributes, your
+  class's skill-level affixes and weapon types; get campaign rules whose bases switch over every 10 levels, plus the good bases you pick
   per slot until the cap.
+- **[Best in slot generator](#best-in-slot-generator)**: per slot the bases and affixes the build
+  wants at the end, a strict tier with a beam and a looser one, optionally a minimum forging
+  potential.
 - **[Idols and Idol Altars generator](#idols-and-idol-altars-generator)**: per idol size and class, every affix
   that can roll on it; plus your preferred idol altars and altar affixes.
 - After a patch, **↻ [A] rules** refreshes the generated rules with new and changed uniques.
@@ -115,7 +119,8 @@ With `[template] base` set (by default the editor's new-filter template,
 - optional `keep_above` patterns move kept rules directly above the generated block so
   they win over it.
 
-Without `keep`, every base rule is kept (a plain merge). The base file is never modified. Generated filters carry an `[auto-uniques ...]`
+Without `keep`, every base rule is kept (a plain merge). The base file is never modified - except
+the new-filter template (the default base), which a new program version updates once (see *New*). Generated filters carry an `[auto-uniques ...]`
 tag in their description; `--install` refuses to overwrite a filter without that
 tag unless `--force` is given, and backs up whatever it overwrites to `.cache/backups/`.
 Keep editing the base filter in-game and re-run `build` to refresh the template; copy
@@ -190,7 +195,25 @@ of the game's languages (the editor's own labels stay English).
   writes (rarity, item type with bases, affixes with tier comparisons, character level,
   potential, class, uniques, corruption, faction, keys/shards/runes/glyphs ...). Affix and
   unique pickers search the game data and only list affixes that can roll on the rule's
-  item types. *Preview at character level* dims rules that are switched off at that level.
+  item types; *Copy affixes* / *Paste affixes* move an affix list to another rule (or a Best
+  in slot slot) - pasting adds the ones that can roll on its item types, and the copied list
+  stays until you copy another, so it also seeds new affix rules. Hovering a base (here, in the Leveling tab's good bases or among the idol
+  altars) shows its stats: level and class requirement, implicits with the range they roll
+  in, a weapon's base attack rate, and an idol altar's idol grid with its refracted slots.
+  The uniques condition's picker filters by item type (quick-filter buttons with counts) and
+  shows each unique's tooltip on hover - base and its implicits, level, LP level, its
+  modifiers with their ranges (set items marked), and lore. Each picked unique can require roll
+  ranges, as in-game: type the values the tooltip shows; they're stored as the game stores
+  them (rolls 0-255, converted the game's way). *Preview at character level* dims rules that are switched off at that level.
+- **Reorder generated sections** (Rules tab) moves the generated sections back to their
+  places - BiS rules under the BiS header, the idol section after the shatter section, the
+  leveling section above the bottom hide-everything rule - each only if the filter has that
+  spot; other rules stay where they are. Ctrl+Z undoes it.
+- **Add missing sections…** (Rules tab) completes a filter that didn't start from *New* -
+  e.g. the uniques-only one `build --standalone` writes, which the editor points out when
+  you open it: the new-filter template's always-show affixes, generic BiS rules, exalted and
+  legendary, class hide (the chosen class's on), shatter and hide-everything rules, each
+  where the template has them. Sections the filter already has stay as they are.
 - **Leveling generator**: see [below](#leveling-section); *Apply* puts the section into
   the open filter.
 - **Idols and Idol Altars generator**: see [below](#idols-and-idol-altars-generator).
@@ -200,13 +223,19 @@ of the game's languages (the editor's own labels stay English).
   code: the first enabled rule whose conditions all match decides, unmatched items are
   shown; an item-type condition honours its bases only when it has a single type.
 
-- **New** starts a filter from the saved new-filter template, `templates/New filter.xml`
-  (listed as "New-filter template"; open and edit it like any filter - it can't be deleted
-  from the editor, and is regenerated from `config.toml` when missing or with *Rebuild
-  template*). Top to bottom it has: the always-show personal/variant affix rule; a **BiS
-  section** (per slot the slot's item type with no bases picked - so every base matches until
-  you pick the right ones - and the build's affixes at T7+; one rule per weapon / off-hand
-  type the build uses; own colour, emphasis and beam, `[bis]`); the exalted rules (`[[exalted_rule]]`: **all T8 items** first - any gear
+- **New** starts a filter from the saved new-filter template, `templates/New filter.xml`,
+  and nothing else (listed as "New-filter template"; open and edit it like any filter - it
+  can't be deleted from the editor, and is regenerated from `config.toml` when missing or
+  with *Rebuild template*). The template says which program version generated it, and a copy
+  as generated is kept in `templates/.generated/`: when a new version starts, it updates the
+  template with a three-way merge by rule name - rules new in that version are added where
+  the template has them, rules you removed stay removed, rules you changed keep your
+  version, untouched ones take the new one (the old template goes to the backups, each
+  update is logged in `templates/.generated/updates.log`). Top to bottom it has: the
+  always-show personal/variant affix rule; a **BiS section** (per slot the slot's item type
+  with no bases picked and no affixes, switched off, plus one weapon rule without an item
+  type - generic placeholders the [Best in slot tab](#best-in-slot-generator) replaces; own
+  colour, emphasis and beam, `[bis]`); the exalted rules (`[[exalted_rule]]`: **all T8 items** first - any gear
   affix at tier 8, no item-type condition - then double T7, T7+T6, single T7 on uncorrupted
   items) and a show-all-legendary rule; the class item hide rules; a **shatter section**
   (`[shatter]`: magic/rare/exalted gear - idols can't be shattered - with rare-roll affixes:
@@ -217,9 +246,12 @@ of the game's languages (the editor's own labels stay English).
   In the dialog you pick the class (it switches on that class's hide and shatter rules,
   becomes the generators' class and sets the filter's class icon - or pick any of the game's
   filter icons and icon colours there; the icon button next to the filter name changes them
-  for the open filter) and whether to fill the BiS rules with the Leveling tab's
-  build affixes and weapons, add the leveling section, and add the idol section. The
-  template's `[A]` rules are regenerated for the current game data on the way.
+  for the open filter). Off by default, so a new filter is a blank slate: adding the BiS
+  rules (Best in slot tab), the leveling section and the idol section - each can be done
+  later from its tab. The template's `[A]` rules are regenerated for the current game data
+  on the way.
+  *Save as* sets the in-game name too: the game lists filters by that name, not by the file
+  name.
 - **↻ [A] rules** (Rules tab) regenerates the open filter's `[A]` rules - unique/set
   groups, class hide rules, always-show affix rules - from `config.toml` and the current
   game data (e.g. new uniques after a patch), the way `build` does. Rules keep their on/off
@@ -245,7 +277,9 @@ the editor doesn't know are kept verbatim and shown as RAW.
 
 ## Leveling section
 
-Generated rules for campaign gear that fits a rough build profile, from toggles:
+Generated rules for campaign gear that fits a rough build profile. Each kind of gear -
+weapons, off-hands, armour, jewelry and belts - has its own section with its own affix
+toggles, so a weapon can want damage while armour wants health and resistances:
 
 - **damage type** (physical, fire, cold, lightning, void, necrotic, poison): every
   ordinary gear affix named "<type> damage" or "<type> penetration" (fire/cold/lightning
@@ -256,13 +290,30 @@ Generated rules for campaign gear that fits a rough build profile, from toggles:
   melee/spell/bow/throwing focus picked, damage-type affixes for the other ways of hitting
   are dropped (no *Added Bow Physical Damage* for a melee build);
 - **attributes** (strength, dexterity, intelligence, attunement, vitality): the attribute's
-  affix, plus *All Attributes* (two-handed weapons only) for any of them. Like damage types
-  and build focus, they count on weapons too;
-- **defence & utility** (health, resistances, armour, dodge, block, ward, mana,
-  movement speed, regen/leech, cooldown) for armour, jewelry and off-hands;
+  affix; for weapons, *All Attributes* (it only rolls on two-handers);
+- **defence & utility** (health, resistances, armour, endurance - its own defence layer -,
+  dodge, block, ward, mana, movement speed, regen/leech, cooldown);
 - **class** (optional): allows that class's class-specific affixes and bases and drops
   affixes it can't roll. Set, corrupted, experimental, personal and idol affixes are
-  never used.
+  never used;
+- **class affixes** (with a class): pick that class's class-specific affixes one by one -
+  skill levels such as *Level of Rive* and the like. The editor groups them by where they
+  roll (helmet, body armour, both, relic).
+
+A section only takes the picked affixes that can roll on its gear: *Strength* counts on
+armour, rings and relics; no single attribute rolls on weapons. The editor offers a section only
+the toggles with something that rolls there (hover one to see where), and flags a pick that
+can't roll on any item type you chose. **Weapons leave out defensive affixes** - health on
+kill or hit, leech, dodge, mana - even when a focus names them (*Melee Health Leech*): they
+rarely beat a damage affix on a weapon. Tick *Include defensive affixes* (`defensive = true`
+in `weapon_affixes`) to count them. Damage affixes with a defensive half (*Lightning Damage
+And Leech*) always count. Class affixes count on whatever they roll on: helmets, body
+armours or relics. Configs from v0.2.0 and older list the toggles once for all gear; every
+section then starts from them, weapons without the defence ones and with *All Attributes*
+for any attribute. Each toggle's affixes are listed in the preview with a checkbox: untick
+one (say *Strength*, or *Minion Melee and Bow Damage*) to leave it out of that gear's rules,
+class affix picks included (`exclude` in `config.toml`); tick it - or pick the class affix again -
+to bring it back.
 
 **Weapons and off-hands** get one toggle per type. Their droppable bases below the level
 cap (60) are grouped by level requirement into 10-level batches; each batch's rule is on
@@ -283,16 +334,40 @@ affix (weapons in `bases` mode: any), but each slot's good bases get their own r
 the rest, with a stronger look, that never switches off before the cap - from there the
 BiS rules take over. The defaults are the jewelry and belt bases
 Raxxanterax's S5 filter picks for the campaign, mostly resistance implicits: Gold Ring,
-Bone and Gold Amulet, Spidersilk Sash and a few relics per class (class bases count only
-for the chosen class). Rarity defaults to magic, rare and exalted; window size, cap,
+Bone and Gold Amulet, Spidersilk Sash and a few relics per class. The list keeps every
+class's relics, but with a class chosen only its own are shown and used. Rarity defaults to magic, rare and exalted; window size, cap,
 thresholds and looks are configurable.
 
 The section's rules start with `[L] `; generating again replaces them in place.
 Otherwise it goes directly under a separator named like LEVELING, else above the bottom
 "hide everything" rule. In the editor the *Leveling generator* tab shows a timeline of
-which bases are shown at which character level, the affixes each toggle picks and the
-resulting rule count. `[leveling]` in `config.toml` holds the same options (the editor
+which bases are shown at which character level, the affixes each toggle picks with where
+they roll, and the resulting rule count. `[leveling]` in `config.toml` holds the same options (the editor
 can export them); with `enabled = true` `build` adds the section to the template too.
+
+## Best in slot generator
+
+The editor's *Best in slot* tab makes the BiS rules for a build, slot by slot: weapons,
+off-hand, helmet, body armour, belt, boots, gloves, amulet, ring and relic. For each slot you
+pick:
+
+- **bases**: weapons and off-hands across several item types (a build may change weapons; a
+  rule only takes the bases of one type, so each type gets its own rules), none ticked = every
+  base of the type; hover a base for its implicits. A class lists its own class bases and
+  leaves out other classes';
+- **affixes**: from those that roll on the slot (the class's class affixes too), with their
+  values; *From the Leveling tab* adds what the Leveling tab's toggles pick for that gear,
+  *Copy affixes to…* adds the slot's picks to other slots (only where they roll), and
+  *Copy* / *Paste affixes* share a list with the rule editor;
+- **two tiers** of what an item needs: *best in slot* (default: 2+ of the picked affixes at
+  T7+, with a beam) and *good* below it (default: 1+ at T6+, plainer), each with an optional
+  minimum forging potential and its own on/off switch. With bases but no affixes, one rule
+  shows those bases.
+
+Rules are named like `BIS - One-Handed Axe: 2+ T7` and `BIS - Helmet (good): 1+ T6, FP 20+`.
+*Apply* replaces the open filter's `BIS - ` rules - the first time the template's generic ones
+- under its BiS separator (else at the top, under a new one); opening a filter loads its BiS
+picks back into the tab. *New* adds them only when asked.
 
 ## Idols and Idol Altars generator
 
@@ -310,8 +385,9 @@ and whether one or both of an idol's two affixes must be among them; each kind w
 becomes one show rule (item type + its bases + affix condition), optionally followed by a
 rule hiding every other non-unique idol. Picks can be copied to another kind (e.g. a size's
 Omen version). The section's rules start with `[I] `: applying again replaces them, and
-opening a filter loads its picks back from them. Without a section yet it goes under a
-separator named like IDOL, else at the top of the filter; the tab warns about rules above
+opening a filter loads its picks back from them. Without a section yet it goes right after
+the shatter section, before the uniques (else under a separator named like IDOL, else at the
+top of the filter); the tab warns about rules above
 it that catch idols by type alone. Heretical (enchanted) idols are crafted from class idols
 and are separate bases, so each class idol's rule lists its heretical version too: one
 thrown out of the inventory is shown like the idol it was made from.

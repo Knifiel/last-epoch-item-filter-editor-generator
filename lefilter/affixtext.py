@@ -28,6 +28,7 @@ by (1 + type modifier) / (1 + the affix's standard modifier) (AffixList.Affix.ge
 """
 from __future__ import annotations
 
+import re
 import struct
 from dataclasses import dataclass, field
 
@@ -248,6 +249,91 @@ def affix_lines(affix: dict, lists: PropertyLists, tables: dict[str, dict[str, s
     return lines
 
 
+def stat_lines(stats: list[dict], lists: PropertyLists, tables: dict[str, dict[str, str]],
+               words: dict[int, str] | None = None) -> list[dict]:
+    """Stats that aren't affixes - a base's implicits, a unique's modifiers - as affix_lines reads
+    affix stats (the tooltip formats them the same way), each with one "tier": the range it rolls
+    in. stats: {property, tags, specialTag, extraTag, type (modifier type), lo, hi}."""
+    lines = []
+    for st in stats:
+        stat = {"affixId": -1, "tiers": [{"minRoll": st["lo"], "maxRoll": st["hi"], "extraRolls": []}],
+                "affixProperties": [{"property": st["property"], "tags": st["tags"], "specialTag": st["specialTag"],
+                                     "extraTag": st.get("extraTag", 0), "modifierType": st["type"]}]}
+        line = affix_lines(stat, lists, tables, words)[0]
+        if st["lo"] < 0 < st["hi"]:   # a range across zero keeps its signs ("-20% to 50%")
+            line = {**line, "tiers": [[round(st["lo"], 6), round(st["hi"], 6)]], "signed": True}
+        lines.append(line)
+    return lines
+
+
+def implicit_lines(implicits: list[dict], lists: PropertyLists, tables: dict[str, dict[str, str]],
+                   words: dict[int, str] | None = None) -> list[dict]:
+    """A base's implicits (ItemList subItems[].implicits): an item rolls each in implicitValue to
+    implicitMaxValue."""
+    return stat_lines([{**imp, "lo": imp["implicitValue"], "hi": imp["implicitMaxValue"]} for imp in implicits],
+                      lists, tables, words)
+
+
+VALUE_MARK = re.compile(r"\[(-?[\d.]+),\s*(-?[\d.]+),\s*(\d+)\]")   # "[min,max,roll id]" in a unique's description
+UNIQUE_DESCRIPTION = 128   # UniqueList tooltipEntries: modDisplay >= this is a tooltipDescriptions index (+ 128)
+
+
+def unique_tooltip(unique: dict, lists: PropertyLists, tables: dict[str, dict[str, str]],
+                   words: dict[int, str] | None = None) -> list[dict]:
+    """A unique's tooltip lines in the game's order (tooltipEntries, else mods then descriptions):
+    a modifier as a stat_lines line plus roll (whether it rolls), roll_id (the roll a filter's
+    roll range refers to), vmin / vmax (its value at roll 0 / 255; hidden mods left out), a description
+    as {"text", "desc": its index, "set": set pieces it needs} - its text from the
+    Unique_Tooltip_<index>_<id> entry, value ranges kept as the game writes them ("[100,150,0]")."""
+    mods, descs = unique.get("mods") or [], unique.get("tooltipDescriptions") or []
+    order = [e["modDisplay"] for e in unique.get("tooltipEntries") or []] \
+        or [*range(len(mods)), *(UNIQUE_DESCRIPTION + i for i in range(len(descs)))]
+    names = tables.get("Item_Names", {})
+    out = []
+    for k in order:
+        if k >= UNIQUE_DESCRIPTION:
+            i = k - UNIQUE_DESCRIPTION
+            if i < len(descs):
+                text = names.get(f"Unique_Tooltip_{i}_{unique['uniqueID']}") or descs[i].get("description") or ""
+                out.append({"text": text.strip(), "desc": i, "set": descs[i].get("setRequirement", 0)})
+        elif k < len(mods) and not mods[k].get("hideInTooltip") and lists.master:
+            m = mods[k]
+            # UniqueItemMod.getValue: a mod rolls only when it can and its max is above its value
+            rolls = bool(m.get("canRoll")) and m["maxValue"] > m["value"]
+            hi = m["maxValue"] if rolls else m["value"]
+            line = stat_lines([{**m, "lo": m["value"], "hi": hi}], lists, tables, words)[0]
+            out.append({**line, "roll": rolls, "roll_id": m.get("rollID", 0), "vmin": m["value"], "vmax": hi})
+    return out
+
+
+def unique_rolls(unique: dict, lists: PropertyLists, tables: dict[str, dict[str, str]],
+                 words: dict[int, str] | None = None) -> list[dict]:
+    """The rolls a filter's unique condition can ask for, as the game's picker offers them
+    (UniqueModifiersContentGenerator.GenerateEntriesForUnique: one entry per mod that can roll,
+    hidden ones included - they drive described effects): the mod's stat_lines line plus roll_id,
+    vmin / vmax (its value at roll 0 / 255; equal when the value doesn't change with the roll),
+    varies, hidden, and desc (the description that shows the roll's value, "[a,b,<roll id>]")."""
+    if not lists.master:
+        return []
+    marks: dict[int, int] = {}
+    for i, d in enumerate(unique.get("tooltipDescriptions") or []):
+        for m in VALUE_MARK.finditer(d.get("description") or ""):
+            marks.setdefault(int(m.group(3)), i)
+    out = []
+    for m in unique.get("mods") or []:
+        if not m.get("canRoll"):
+            continue
+        varies = m["maxValue"] > m["value"]   # UniqueItemMod.getValue rolls only then
+        hi = m["maxValue"] if varies else m["value"]
+        line = stat_lines([{**m, "lo": m["value"], "hi": hi}], lists, tables, words)[0]
+        entry = {**line, "roll_id": m.get("rollID", 0), "vmin": m["value"], "vmax": hi, "varies": varies,
+                 "hidden": bool(m.get("hideInTooltip"))}
+        if entry["hidden"] and entry["roll_id"] in marks:
+            entry["desc"] = marks[entry["roll_id"]]
+        out.append(entry)
+    return out
+
+
 def _f32(x: float) -> float:
     return struct.unpack("f", struct.pack("f", x))[0]
 
@@ -261,6 +347,10 @@ def format_value(value: float, line: dict) -> str:
     return f"{text}%" if line["percent"] else text
 
 
+def _signed_value(v: float, line: dict) -> str:
+    return ("-" if v < 0 else line["sign"] if line["sign"] == "+" else "") + format_value(abs(v), line)
+
+
 def format_line(line: dict, lo: float, hi: float, value_after: bool = False) -> str:
     """'+4% Cold Penetration', '+20-25 Health', '-5 to -10 ...'; value_after: the language puts
     the value after the text (Korean), "{0}" in the text marks its place."""
@@ -268,7 +358,9 @@ def format_line(line: dict, lo: float, hi: float, value_after: bool = False) -> 
         return line["text"]
     a, b = format_value(lo, line), format_value(hi, line)
     s = line["sign"]
-    if a == b:
+    if line.get("signed"):
+        value = f"{_signed_value(lo, line)} to {_signed_value(hi, line)}"
+    elif a == b:
         value = s + a
     elif s == "-":
         value = f"-{a} to -{b}"

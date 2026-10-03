@@ -1,7 +1,7 @@
 """Starter filters (the editor's New button) and refreshing the generated [A] rules of a filter.
 
 A starter filter is built from parts, top to bottom: the [[affix_rule]]s, the BiS section
-(per slot the build's affixes at a high tier; bases left to pick), generic [[exalted_rule]]s
+(generic per-slot rules, switched off, which the editor's Best in slot tab replaces), generic [[exalted_rule]]s
 (T8 first) and a show-all-legendary rule under one header, the [class_hide] rules (the
 chosen class's one enabled), the shatter section, the unique / set groups, optionally the
 leveling section, and a bottom rule hiding everything else. That last one never hides shards, runes, glyphs
@@ -13,22 +13,27 @@ Ordering convention: index 0 is the TOP of the in-game list.
 """
 from __future__ import annotations
 
+import copy
+import json
 import re
+import shutil
+from datetime import datetime
 
 from pathlib import Path
 
-from . import idols
+from . import __version__, bis, idols
 from .filterdoc import encode_rule, node_to_xml, parse_filter, parse_rule_blocks, render_filter
 from .filterxml import BaseFilter, FilterHeader, insert_above_section, merge, render_rule, rule_infos, write_filter
 from .gamedata import ARMOUR_TYPES, CLASS_FILTER_ICONS, CLASSES, JEWELRY_TYPES, OFFHAND_TYPES, TYPE_IDS, WEAPON_TYPES
-from .leveling import CLASS_CATEGORIES, build_affixes, gear_affixes, parse_options as parse_leveling, plan_leveling
-from .rules import (RULE_KEYS, ConfigError, Rule, RuleSpec, _check_keys, plan_affix_rules, plan_class_hide,
-                    plan_rules, separator)
-from .sections import doc_infos, place
+from .leveling import (CLASS_CATEGORIES, SECTION_OF, build_affixes, gear_affixes, parse_options as parse_leveling,
+                       plan_leveling, rolling_on)
+from .rules import (RULE_KEYS, UPDATED_GROUP_RULES, ConfigError, Rule, RuleSpec, _check_keys, plan_affix_rules,
+                    plan_class_hide, plan_rules, separator)
+from .sections import IDOL_PLACEMENT, doc_infos, place
 
 PARTS = {
     "personal": "Always show personal & variant affixes ([[affix_rule]])",
-    "bis": "BiS section: build affixes per slot - pick the bases yourself ([bis])",
+    "bis": "BiS section: generic per-slot rules, switched off - the Best in slot tab fills them ([bis])",
     "exalted": "Generic exalted rules, T8 first ([[exalted_rule]])",
     "legendary": "Show all legendary items",
     "class_hide": "Class item hide rules (the chosen class's one enabled)",
@@ -95,7 +100,7 @@ def plan_bis(config: dict, data: dict, build: dict, character_class: str = "") -
     opts = parse_leveling({k: v for k, v in build.items() if k != "enabled"}, data["bases"])
     if character_class:
         opts.character_class = character_class
-    offense, everything = build_affixes(opts, data["affixes"])
+    pools = build_affixes(opts, data["affixes"])   # each kind of gear's own picks
     names = {b["type"]: b["name"] for b in data["bases"]}
 
     def rule(name: str, types: list[str], pool: list[dict] | list[int], enabled: bool = True) -> Rule:
@@ -107,12 +112,11 @@ def plan_bis(config: dict, data: dict, build: dict, character_class: str = "") -
     rules = [separator(cfg.get("header", "------ BIS ITEMS (pick the bases) ------"))]
     hands = list(dict.fromkeys(opts.weapons + opts.offhands))
     for t in hands:
-        pool = offense if t in WEAPON_TYPES else everything
-        rules.append(rule(f"BIS - {names[t]} (pick bases)", [t], [a for a in pool if TYPE_IDS[t] in a["rolls_on"]]))
+        rules.append(rule(f"BIS - {names[t]} (pick bases)", [t], rolling_on(pools[SECTION_OF[t]], (t,))))
     if not hands:   # nothing to go on: a disabled rule to fill in (no item type matches nothing)
-        rules.append(rule("BIS - Weapon (pick type & bases)", [], offense, enabled=False))
+        rules.append(rule("BIS - Weapon (pick type & bases)", [], pools["weapons"], enabled=False))
     for t in ARMOUR_TYPES + JEWELRY_TYPES:
-        rules.append(rule(f"BIS - {names[t]} (pick bases)", [t], [a for a in everything if TYPE_IDS[t] in a["rolls_on"]]))
+        rules.append(rule(f"BIS - {names[t]} (pick bases)", [t], rolling_on(pools[SECTION_OF[t]], (t,))))
     return rules
 
 
@@ -252,9 +256,76 @@ def refresh_generated(config: dict, data: dict, rules: list[dict]) -> dict:
             "warnings": plan.warnings + affix_warnings}
 
 
+def class_hide_names(config: dict) -> dict[str, str]:
+    """The [class_hide] rule names (rule_prefix included) -> their class."""
+    prefix = config.get("filter", {}).get("rule_prefix", "")
+    name = config.get("class_hide", {}).get("name", "Hide non-{class} class non-legendary items")
+    return {f"{prefix}{name.replace('{class}', c)}": c for c in CLASSES}
+
+
+def _catch_all(rule: dict) -> bool:
+    return "raw" not in rule and rule.get("type") == "HIDE" and rule.get("enabled", True) and not rule.get("conditions")
+
+
+def add_missing_sections(config: dict, data: dict, template: dict, rules: list[dict], options: dict) -> dict:
+    """A filter that didn't start from New (e.g. `build --standalone`'s uniques-only one) completed
+    with the template's parts: its [A] rules refreshed (which adds the always-show affix rules
+    and the class hide rules), then each template section (a separator and the rules under it)
+    the filter has none of - BiS (the template's generic rules), exalted & legendary, shatter -
+    set up for the class as New sets them up and put where the template has it. A section the
+    filter has any rule of stays as it is; the hide-everything catch-all is added at the very
+    bottom (below a leveling section) unless the filter has one. options: character_class.
+    Returns {"rules", "added": [names], "warnings"}."""
+    prefix = config.get("filter", {}).get("rule_prefix", "")
+    before = {r.get("name") for r in rules if r.get("name")}
+    refreshed = refresh_generated(config, data, rules)
+    full = new_from_template(config, data, template, {"character_class": options.get("character_class", "")})
+    out = refreshed["rules"]
+    if options.get("character_class"):   # class hide rules this adds: the class's one on, as New does
+        hide = class_hide_names(config)
+        for r in out:
+            if r.get("name") not in before and r.get("name") in hide and "raw" not in r:
+                r["enabled"] = hide[r["name"]] == options["character_class"]
+    sections: list[list[dict]] = []
+    for r in full["rules"]:
+        if not r.get("name") or "raw" in r:
+            continue
+        if not sections or (not r.get("conditions") and not r.get("enabled", True)):   # a separator starts one
+            sections.append([])
+        sections[-1].append(r)
+    ours = (lambda r: prefix and r["name"].startswith(prefix)) if prefix else (lambda r: False)
+    at, bottom = -1, []
+    for section in sections:
+        names = {x.get("name") for x in out}
+        has_it = any(r["name"] in names for r in section if not ours(r) and not _catch_all(r))
+        for r in section:
+            index = next((i for i, x in enumerate(out) if x.get("name") == r["name"]), None)
+            if index is not None:
+                at = index
+            elif _catch_all(r):
+                if not any(_catch_all(x) for x in out):
+                    bottom.append(r)
+            elif not ours(r) and not has_it:   # generated rules the refresh doesn't make any more are left out
+                at += 1
+                out.insert(at, r)
+    out += bottom
+    added = [r["name"] for r in out if r.get("name") and r["name"] not in before]
+    return {"rules": out, "added": added, "warnings": refreshed["warnings"] + full["warnings"]}
+
+
 # --- the saved new-filter template ---------------------------------------------------
+#
+# The template is the user's to edit (in the editor). Next to it, .generated/<name> keeps the
+# template as this program generated it; both carry a "generated by" stamp with the program
+# version. When a different version starts, sync_template updates the user's template with a
+# three-way merge (reconcile_template): the copy as generated is the reference that tells the
+# user's edits apart from what the new version changed.
 
 TEMPLATE_PARTS = [p for p in PARTS if p != "leveling"]
+# Template rules earlier versions generated that this one doesn't (v0.1.0's BiS altar rule moved to the idol section;
+# the unique groups' old default rules, rules.UPDATED_GROUP_RULES, e.g. v0.2.0's two Weaver's Will brackets).
+LEGACY_TEMPLATE_RULES = {"BIS - Idol Altar (pick bases & affixes)"}
+STAMP = re.compile(r"<!-- New-filter template generated by Last Epoch Item Filter Editor (\S+) -->")
 
 
 def make_template(config: dict, data: dict) -> dict:
@@ -263,13 +334,165 @@ def make_template(config: dict, data: dict) -> dict:
     return build_starter(config, data, {"name": "New filter", "parts": TEMPLATE_PARTS, "leveling": {}})
 
 
+def generated_copy(path: Path) -> Path:
+    return path.parent / ".generated" / path.name
+
+
+def template_stamp(path: Path) -> str | None:
+    """The program version a template file says generated it (None: no stamp)."""
+    if not path.is_file():
+        return None
+    m = STAMP.search(path.read_bytes()[:400].decode("utf-8-sig", errors="replace"))
+    return m.group(1) if m else None
+
+
+def write_template(path: Path, doc: dict, version: str | None = None) -> None:
+    """A template file with the "generated by" stamp before the filter (an XML comment)."""
+    stamp = f"<!-- New-filter template generated by Last Epoch Item Filter Editor {version or __version__} -->\n"
+    write_filter(path, stamp + render_filter(doc))
+
+
+def write_generated_template(path: Path, doc: dict) -> None:
+    """The template and its copy as generated: from now on, edits to the template are the user's."""
+    write_template(path, doc)
+    write_template(generated_copy(path), doc)
+
+
+def legacy_template_rules(config: dict, data: dict) -> dict[str, dict]:
+    """LEGACY_TEMPLATE_RULES as their version generated them (rebuilt with this config and game
+    data, the way v0.1.0's plan_bis did) and the unique groups' rules as their old default rules
+    made them: a user's copy that differs in any way was changed."""
+    cfg = config.get("bis", {})
+    spec = _look(cfg, BIS_KEYS, "[bis]")
+    altar = [a["id"] for a in data["affixes"] if a["category"] == "Idol Altars" and not a["special"]]
+    rule = Rule(name="BIS - Idol Altar (pick bases & affixes)", group="bis",
+                spec=RuleSpec(**{**spec.__dict__, "enabled": spec.enabled and bool(altar)}), unique_ids=None,
+                rarity=None, item_types=["IDOL_ALTAR"], affix_ids=altar, affix_min=cfg.get("min", 1),
+                affix_tier=_tier(cfg.get("tier", 7)))
+    legacy = {rule.name: parse_rule_blocks([render_rule(rule)])[0]}
+    current = {r.name for r in plan_rules(config, data["uniques"]).rules}
+    for r in plan_rules(config, data["uniques"], upgrade=False).rules:
+        if r.group in UPDATED_GROUP_RULES and r.name not in current:
+            legacy[r.name] = parse_rule_blocks([render_rule(r)])[0]
+    return legacy
+
+
+def new_template_rules(config: dict, data: dict) -> set[str]:
+    """Template rules earlier versions didn't generate: the ones only the unique groups' new default
+    rules (UPDATED_GROUP_RULES) make, e.g. the three Weaver's Will brackets."""
+    old = {r.name for r in plan_rules(config, data["uniques"], upgrade=False).rules}
+    return {r.name for r in plan_rules(config, data["uniques"]).rules if r.group in UPDATED_GROUP_RULES and r.name not in old}
+
+
 def ensure_template(path: Path, config: dict, data: dict) -> bool:
     """Write the template to `path` unless it exists. Returns True when it was created."""
     if path.is_file():
         return False
-    doc = make_template(config, data)
-    write_filter(path, render_filter(doc))
+    write_generated_template(path, make_template(config, data))
     return True
+
+
+def _key(rule: dict) -> str:
+    return rule.get("name") or json.dumps(rule, sort_keys=True)
+
+
+def reconcile_template(base: list[dict] | None, mine: list[dict], fresh: list[dict]) -> tuple[list[dict], dict]:
+    """Rules of the user's template (mine) updated from what the previous version generated
+    (base) to what this one generates (fresh), rules matched by name:
+    - a rule mine has as base had it takes fresh's version; one the user changed stays theirs;
+    - a rule the user removed (in base, not in mine) stays removed;
+    - a rule new in fresh goes right after the rule it follows there (at the top if none);
+    - a rule fresh no longer makes goes, unless the user changed it; the user's own rules stay.
+    Without a base (a template from before the stamp) mine's rules are kept as they are and the
+    fresh rules mine lacks are added. Returns (rules, {"added", "updated", "kept", "dropped": [names]})."""
+    by_base = {_key(r): r for r in base} if base is not None else None
+    by_fresh = {_key(r): r for r in fresh}
+    report = {"added": [], "updated": [], "kept": [], "dropped": []}
+    out = []
+    for r in mine:
+        k = _key(r)
+        untouched = by_base is not None and k in by_base and by_base[k] == r
+        if k in by_fresh:
+            if untouched:
+                out.append(by_fresh[k])
+                if by_fresh[k] != r:
+                    report["updated"].append(k)
+            else:
+                out.append(r)
+                if by_base is not None and k in by_base and by_fresh[k] != by_base[k]:
+                    report["kept"].append(k)   # changed by both: the user's version wins
+        elif untouched:
+            report["dropped"].append(k)
+        else:
+            out.append(r)
+    at = -1
+    for r in fresh:
+        k = _key(r)
+        index = next((i for i, x in enumerate(out) if _key(x) == k), None)
+        if index is not None:
+            at = index
+        elif by_base is None or k not in by_base:   # new in this version (removed by the user: stays removed)
+            at += 1
+            out.insert(at, r)
+            report["added"].append(k)
+    return out, report
+
+
+def sync_template(path: Path, config: dict, data: dict, backup_dir: Path | None = None) -> dict | None:
+    """Bring the template up to this program version (see reconcile_template), once per version:
+    returns None when there was nothing to do, else {"from", "to", "created" or the report,
+    "backup"}. The old template is copied to backup_dir first; each update is appended to
+    .generated/updates.log next to the template."""
+    if ensure_template(path, config, data):
+        return {"from": None, "to": __version__, "created": True}
+    stamp = template_stamp(path)
+    base_path = generated_copy(path)
+    if stamp == __version__:
+        if template_stamp(base_path) != __version__:   # an update cut short after the template was written
+            write_template(base_path, make_template(config, data))
+        return None
+    try:
+        mine = parse_filter(path.read_bytes().decode("utf-8-sig"))
+    except (ValueError, SyntaxError) as e:   # xml.etree's ParseError is a SyntaxError
+        raise ConfigError(f"the new-filter template {path} can't be read ({e}); fix or delete it") from e
+    fresh = make_template(config, data)
+    had_copy = base_path.is_file()
+    if had_copy:
+        base = parse_filter(base_path.read_bytes().decode("utf-8-sig"))["rules"]
+    else:
+        # A template from before the stamp (v0.2.0 and older) has no copy as generated. Those
+        # versions generated the same rules as this one, but for rules since dropped or new: so this
+        # version's template less its new rules is the reference (a rule missing from the user's
+        # counts as removed), and the dropped rules count as generated ones.
+        legacy = legacy_template_rules(config, data)   # as generated: only an identical copy counts as untouched
+        new = new_template_rules(config, data)
+        base = ([r for r in fresh["rules"] if r.get("name") not in new]
+                + [legacy[r["name"]] for r in mine["rules"] if r.get("name") in legacy])
+    rules, report = reconcile_template(base, mine["rules"], fresh["rules"])
+    backup = None
+    if backup_dir is not None:
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        backup = backup_dir / f"{path.stem}-before-{__version__}-{datetime.now():%Y%m%d-%H%M%S}.xml"
+        shutil.copyfile(path, backup)
+    write_template(path, {**mine, "rules": rules})
+    write_template(base_path, fresh)
+    log = [f"{datetime.now():%Y-%m-%d %H:%M} {stamp or 'unstamped'} -> {__version__}"
+           + ("" if had_copy else " (no copy as generated: compared with this version's template)")]
+    log += [f"  {what}: {', '.join(names)}" for what, names in report.items() if names]
+    with open(base_path.parent / "updates.log", "a", encoding="utf-8") as f:
+        f.write("\n".join(log) + "\n")
+    return {"from": stamp, "to": __version__, **report, "first": not had_copy, "backup": str(backup) if backup else None}
+
+
+def describe_template_update(update: dict, path: Path) -> str:
+    """sync_template's result in a sentence or two."""
+    if update.get("created"):
+        return f"Generated the new-filter template {path}"
+    counts = ", ".join(f"{len(update[k])} {k}" for k in ("added", "updated", "dropped") if update.get(k)) or "no rule changes"
+    text = (f"New-filter template updated from {update['from'] or 'an unstamped version'} to {update['to']}: {counts}"
+            + (f"; your edits kept where this version changed the same rules ({len(update['kept'])})" if update.get("kept") else "")
+            + ". Rules you removed stay removed.")
+    return text + (f" The old one is in {update['backup']}." if update.get("backup") else "")
 
 
 def load_template(path: Path, config: dict, data: dict) -> dict:
@@ -279,26 +502,28 @@ def load_template(path: Path, config: dict, data: dict) -> dict:
 
 def new_from_template(config: dict, data: dict, template: dict, options: dict) -> dict:
     """A new filter from the saved template: [A] rules regenerated for the current game data,
-    the class's hide and shatter rules switched on and its filter icon set, BiS rules filled with the build's affixes,
-    and optionally the leveling / idol sections added. options: name, character_class,
-    fill_bis, leveling (the Leveling tab's options, needed for BiS / leveling), add_leveling,
-    idols (the Idol tab's options), icon / icon_color (the filter's icon; default: the class's)."""
+    the class's hide and shatter rules switched on and its filter icon set; nothing else unless
+    asked: the BiS rules from the Best in slot tab's options (bis), the leveling section
+    (add_leveling, with leveling = the Leveling tab's options), the idol section (idols = the
+    Idol tab's options). options: name, character_class, bis, add_leveling, leveling, idols,
+    icon / icon_color (the filter's icon; default: the class's)."""
     refreshed = refresh_generated(config, data, template["rules"])
     rules, warnings = refreshed["rules"], list(refreshed["warnings"])
     cls = options.get("character_class", "")
-    prefix = config.get("filter", {}).get("rule_prefix", "")
-    hide_name = config.get("class_hide", {}).get("name", "Hide non-{class} class non-legendary items")
-    by_class = {f"{prefix}{hide_name.replace('{class}', c)}": c for c in CLASSES}
-    by_class.update({f"SHATTER - {c.upper()} AFFIXES": c for c in CLASSES})
+    by_class = {**class_hide_names(config), **{f"SHATTER - {c.upper()} AFFIXES": c for c in CLASSES}}
     if cls:
         for r in rules:
             if r.get("name") in by_class and "raw" not in r:
                 r["enabled"] = by_class[r["name"]] == cls
     build = options.get("leveling")
-    if options.get("fill_bis") and build is not None:
-        bis = plan_bis(config, data, build, cls)[1:]   # the template keeps its own header
-        rules, _, _ = place(rules, doc_infos(rules), parse_rule_blocks([render_rule(r) for r in bis]), "BIS - ",
-                            section="BIS", fallback="top")
+    if options.get("bis"):   # the Best in slot tab's picks replace the template's generic BiS rules
+        bis_opts = bis.parse_options(options["bis"])
+        if cls:
+            bis_opts.character_class = cls
+        plan = bis.plan_bis(bis_opts, data)
+        warnings += [f"BiS: {w}" for w in plan.warnings]
+        if plan.rules:
+            rules, _, _ = bis.place_bis(rules, plan.rules, bis_opts.header)
     if options.get("add_leveling") and build is not None:
         table = {k: v for k, v in build.items() if k != "enabled"}
         if cls:
@@ -314,7 +539,7 @@ def new_from_template(config: dict, data: dict, template: dict, options: dict) -
         warnings += plan.warnings
         if plan.rules:
             rules, _, _ = place(rules, doc_infos(rules), parse_rule_blocks([render_rule(r) for r in plan.rules]),
-                                idol_opts.rule_prefix, section="IDOL", fallback="top")
+                                idol_opts.rule_prefix, **IDOL_PLACEMENT)
     header = {**template["header"], "name": options.get("name") or "New filter",
               "version": data.get("game_version") or template["header"].get("version", "")}
     if cls:   # the filter list shows the class's icon...

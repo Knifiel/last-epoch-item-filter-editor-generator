@@ -52,11 +52,18 @@ def build_language(tables: dict[str, dict[str, str]], data: dict, code: str = ""
     names, affix_names = tables["Item_Names"], tables["Item_Affixes"]
     prefs = LANGUAGE_PREFS.get(code, {})
     words = {p: tables["Common"].get(k) for p, k in affixtext.WORD_KEYS.items()}
-    out = {"uniques": {}, "base_types": {}, "subtypes": {}, "affixes": {}, "lines": {}, "categories": {},
+    out = {"uniques": {}, "base_types": {}, "subtypes": {}, "implicits": {}, "affixes": {}, "lines": {}, "categories": {},
            "value_after": bool(prefs.get("value_after"))}
+    out["unique_tooltips"] = {}
     for u in data["uniques"]:
         if names.get(f"Unique_Name_{u['id']}"):
             out["uniques"][u["id"]] = names[f"Unique_Name_{u['id']}"]
+        lines = [names.get(f"Unique_Tooltip_{line['desc']}_{u['id']}") if "desc" in line
+                 else affixtext.resolve(line.get("source"), tables, words, prefs) for line in u.get("tooltip") or []]
+        rolls = [affixtext.resolve(line.get("source"), tables, words, prefs) for line in u.get("rolls") or []]
+        lore = names.get(f"Unique_Lore_{u['id']}")
+        if any(lines) or any(rolls) or lore:   # None: the English text stays
+            out["unique_tooltips"][u["id"]] = {"lines": lines, "rolls": rolls, "lore": lore}
     for b in data["bases"]:
         if names.get(f"Item_BaseType_Name_{b['id']}"):
             out["base_types"][b["id"]] = names[f"Item_BaseType_Name_{b['id']}"]
@@ -64,6 +71,9 @@ def build_language(tables: dict[str, dict[str, str]], data: dict, code: str = ""
             text = names.get(f"Item_SubType_Name_{b['id']}_{s['id']}")
             if text:
                 out["subtypes"][f"{b['id']}/{s['id']}"] = text
+            texts = [affixtext.resolve(line.get("source"), tables, words, prefs) for line in s.get("implicits") or []]
+            if any(texts):
+                out["implicits"][f"{b['id']}/{s['id']}"] = texts   # None: the English text stays
     out["categories"] = {}   # affix picker headers / categories (English name -> this language's)
     for c in sorted({a.get(k) for a in data["affixes"] for k in ("header", "category")} - {None, ""}):
         text = affix_names.get(f"Affix_Category_{c}") or tables["Common"].get(f"Affix_Category_{c}")

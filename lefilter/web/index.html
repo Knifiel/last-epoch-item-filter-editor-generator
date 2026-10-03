@@ -25,6 +25,7 @@
 <nav class="tabs">
   <button data-tab="rules" class="active">Rules</button>
   <button data-tab="leveling">Leveling generator</button>
+  <button data-tab="bis">Best in slot</button>
   <button data-tab="idols">Idols and Idol Altars generator</button>
   <button data-tab="test">Test an item</button>
   <div class="spacer"></div>
@@ -44,6 +45,8 @@
           <button id="btn-down" title="Move down">▼</button>
           <button id="btn-refresh" title="Regenerate the generated [A] rules (unique/set groups, class hide rules, always-show affixes) from config.toml and the current game data. Keeps their on/off state and filled build slots.">↻ [A] rules</button>
           <button id="btn-free" title="Free rule slots: remove decorative separators, campaign leveling rules or the rules for the most common low-level uniques">Free up rules…</button>
+          <button id="btn-complete" title="Add the new-filter template's sections this filter lacks: BiS, exalted and legendary, class hide, shatter, hide everything else">Add missing sections…</button>
+          <button id="btn-reorder" title="Move the generated sections back to their places: BiS rules under the BiS header, the idol section after the shatter section (before the uniques), the leveling section above the bottom hide-everything rule">Reorder generated sections</button>
           <input id="search" type="search" placeholder="Filter rules by name…">
         </div>
         <div class="toolbar level-preview">
@@ -52,6 +55,7 @@
           <input type="number" id="lvl-num" min="1" max="100" value="1">
           <span class="hint">rules switched off at that level are dimmed</span>
         </div>
+        <div id="doc-notice"></div>
         <div class="list-head"><span>#</span><span>on</span><span></span><span>rule (top = highest priority)</span></div>
         <ol id="rule-list" class="rule-list"></ol>
       </div>
@@ -63,6 +67,13 @@
     <div class="split">
       <div class="pane form-pane" id="lev-form"></div>
       <div class="pane" id="lev-preview"></div>
+    </div>
+  </section>
+
+  <section id="tab-bis" class="tab">
+    <div class="split">
+      <div class="pane form-pane" id="bis-list"></div>
+      <div class="pane" id="bis-editor"></div>
     </div>
   </section>
 

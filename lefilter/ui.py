@@ -17,7 +17,7 @@ import sys
 import threading
 import tomllib
 import webbrowser
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,11 +28,13 @@ from . import gamedata
 from .filterdoc import parse_filter, parse_rule_blocks, render_filter
 from .filterxml import MAX_RULES, render_rule, write_filter
 from .game import find_filters_dir
-from . import cleanup, idols
-from .leveling import TOGGLES, LevelingOptions, parse_options, plan_leveling
-from .sections import doc_infos, place
-from .starter import (PARTS, TEMPLATE_PARTS, ensure_template, load_template, make_template, new_from_template,
-                      refresh_generated)
+from . import bis, cleanup, idols
+from .leveling import (SECTIONS, TOGGLES, class_affix_choices, class_affixes, parse_options,
+                       plan_leveling, toggle_affixes)
+from .sections import IDOL_PLACEMENT, doc_infos, place, reorder_generated
+from . import __version__
+from .starter import (PARTS, TEMPLATE_PARTS, add_missing_sections, load_template, make_template, new_from_template,
+                      refresh_generated, sync_template, template_stamp, write_generated_template, write_template)
 from .matcher import Context, evaluate
 from .rules import ConfigError
 
@@ -48,7 +50,11 @@ class Api:
         self.lang_dir = lang_dir
         self.config_path = config_path
         self.template_file = template_file
-        ensure_template(template_file, self.config, data)
+        # a new program version brings the template up to date, keeping the user's edits (once per version)
+        try:
+            self.template_update = sync_template(template_file, self.config, data, backup_dir)
+        except ConfigError as e:   # the editor still starts; the message says what to fix (New needs it)
+            self.template_update = {"error": str(e)}
         self.ctx = Context(data)
         self.idol_kinds = idols.idol_kinds(data)
         self.altar = idols.altar_kind(data)
@@ -92,13 +98,17 @@ class Api:
         doc = body["doc"]
         if len(doc["rules"]) > MAX_RULES:
             raise ValueError(f"{len(doc['rules'])} rules - the game allows at most {MAX_RULES} per filter")
-        text = render_filter(doc)
+        is_template = path.resolve() == self.template_file.resolve()
+        stamp = template_stamp(path) if is_template else None
         backup = None
         if path.exists():
             if not body.get("overwrite"):
                 raise FileExistsError(f"{path.name} already exists")
             backup = self._backup(path)
-        write_filter(path, text)
+        if is_template:   # the user's edits; the stamp still says which version generated it
+            write_template(path, doc, stamp)
+        else:
+            write_filter(path, render_filter(doc))
         return {"path": str(path), "backup": str(backup) if backup else None}
 
     def _backup(self, path: Path) -> Path:
@@ -123,9 +133,13 @@ class Api:
     def meta(self) -> dict:
         d = self.data
         lcfg = {k: v for k, v in self.config.get("leveling", {}).items() if k != "enabled"}
-        defaults = asdict(LevelingOptions())
+        defaults = asdict(parse_options({}, d["bases"]))   # complete sections even when config.toml's [leveling] is broken
         try:
-            defaults.update(asdict(parse_options(lcfg, d["bases"])))
+            opts = parse_options(lcfg, d["bases"])
+            defaults.update(asdict(opts))
+            # the editor keeps one list of class affix ids for every class (it sends the chosen class's)
+            defaults["class_affixes"] = list(dict.fromkeys(
+                a["id"] for c in gamedata.CLASSES for a in class_affixes(replace(opts, character_class=c), d["affixes"])[0]))
         except ConfigError:
             pass
         return {
@@ -134,8 +148,10 @@ class Api:
             "bases": d["bases"],
             "omen_affix_mod": d.get("omen_affix_mod", 0.0),
             "affixes": d["affixes"],
-            "uniques": [{k: u[k] for k in ("id", "name", "base_type", "base_type_name", "sub_type", "level", "lpl",
-                                            "is_set", "weavers_will")} for u in d["uniques"]],
+            "uniques": [{**{k: u[k] for k in ("id", "name", "base_type", "base_type_name", "sub_type", "level", "lpl",
+                                               "is_set", "weavers_will")},
+                         "tooltip": u.get("tooltip"), "rolls": u.get("rolls") or [], "lore": u.get("lore", "")}
+                        for u in d["uniques"]],
             "enums": {"rarities": gamedata.RARITIES, "classes": gamedata.CLASSES, "factions": gamedata.FILTER_FACTIONS,
                       "faction_labels": gamedata.FACTION_LABELS, "corruption": gamedata.CORRUPTION, "comparsion": gamedata.COMPARSION,
                       "beam_sizes": gamedata.BEAM_SIZES, "sealed": gamedata.SEALED_TYPES,
@@ -146,13 +162,27 @@ class Api:
                       "class_icons": gamedata.CLASS_FILTER_ICONS},
             "toggles": [{"key": t.key, "label": t.label, "group": t.group} for t in TOGGLES],
             "leveling_defaults": defaults,
+            "class_affixes": {c: [a["id"] for a in class_affix_choices(d["affixes"], c)] for c in gamedata.CLASSES},
+            # per class ("" = none): toggle -> the base type ids its affixes roll on (which sections offer it)
+            "toggle_rolls_on": {c: {k: sorted({i for a in v for i in a["rolls_on"]}) for k, v in
+                                    toggle_affixes({}, d["affixes"], c, [t.key for t in TOGGLES]).items()}
+                                for c in ("", *gamedata.CLASSES)},
+            "sections": {s: {"key": key, "types": types} for s, (key, types) in SECTIONS.items()},
+            "bis": {"slots": [{"key": k, "label": label, "types": list(types)} for k, label, types in bis.SLOTS],
+                    # per class ("" = none): slot -> affix ids its picker offers
+                    "pools": {c: {k: [a["id"] for a in bis.slot_pool(d["affixes"], k, c)] for k, _, _ in bis.SLOTS}
+                              for c in ("", *gamedata.CLASSES)},
+                    "defaults": asdict(bis.BisOptions()), "tier_defaults": bis.TIER_DEFAULTS,
+                    "style_defaults": bis.STYLE_DEFAULTS},
             "idol_kinds": [{**asdict(k), "subtypes": k.all_subtypes} for k in self.idol_kinds],
             "idol_defaults": asdict(idols.IdolOptions()),
             "idol_altar": asdict(self.altar) if self.altar else None,
             "filter_icons": d.get("filter_icons", {"icons": [], "colors": []}),
             "languages": d.get("languages") or [{"code": "en", "label": "English"}],
             "template": {"location": "template", "file": self.template_file.name,
-                         "parts": [PARTS[p] for p in TEMPLATE_PARTS]},
+                         "parts": [PARTS[p] for p in TEMPLATE_PARTS], "update": self.template_update,
+                         "generated_by": template_stamp(self.template_file)},
+            "app_version": __version__,
             "max_rules": MAX_RULES,
             "locations": list(self.dirs),
         }
@@ -168,7 +198,12 @@ class Api:
             "windows": {t: [{"min": w.min, "max": w.max,
                              "bases": [{"id": s["id"], "name": s["name"], "level": s["level"]} for s in w.bases]}
                             for w in ws] for t, ws in plan.windows.items()},
-            "picked": {k: [{"id": a["id"], "name": a["name"]} for a in v] for k, v in plan.picked.items()},
+            "picked": {s: {k: [a["id"] for a in v] for k, v in toggles.items()} for s, toggles in plan.picked.items()},
+            # before the sections' exclusions (the preview's per-affix checkboxes) and the excluded ids
+            "candidates": {s: {k: [a["id"] for a in v] for k, v in toggles.items()}
+                           for s, toggles in plan.candidates.items()},
+            "excluded": {s: sorted(ids) for s, ids in plan.excluded.items()},
+            "class_affixes": [a["id"] for a in plan.class_affixes],
             "warnings": plan.warnings,
             "prefix": opts.rule_prefix,
         }
@@ -185,8 +220,7 @@ class Api:
         result = {"rules": new, "warnings": plan.warnings, "prefix": opts.rule_prefix}
         if "rules" in body:
             current = body["rules"]
-            merged, removed, at = place(current, doc_infos(current), new, opts.rule_prefix, section="IDOL",
-                                        fallback="top")
+            merged, removed, at = place(current, doc_infos(current), new, opts.rule_prefix, **IDOL_PLACEMENT)
             shadows = idols.shadowing_rules(merged, at, altar=bool(opts.altar["bases"] or opts.altar["affixes"]))
             if shadows and new:
                 result["warnings"] = result["warnings"] + [
@@ -204,11 +238,34 @@ class Api:
         """Regenerate the new-filter template from config.toml (the old one is backed up)."""
         backup = self._backup(self.template_file) if self.template_file.is_file() else None
         doc = make_template(self.config, self.data)
-        write_filter(self.template_file, render_filter(doc))
+        write_generated_template(self.template_file, doc)
         return {"path": str(self.template_file), "backup": str(backup) if backup else None, "rules": len(doc["rules"])}
 
     def refresh(self, body: dict) -> dict:
         return refresh_generated(self.config, self.data, body["rules"])
+
+    def bis(self, body: dict) -> dict:
+        """The Best in slot tab's rules, and the open filter with them in its BiS section."""
+        opts = bis.parse_options(body.get("options", {}))
+        plan = bis.plan_bis(opts, self.data)
+        result = {"rules": plan.rules, "warnings": plan.warnings, "prefix": bis.PREFIX}
+        if "rules" in body:
+            merged, removed, at = bis.place_bis(body["rules"], plan.rules, opts.header)
+            result.update(merged=merged, removed=removed, position=at)
+        return result
+
+    def reorder(self, body: dict) -> dict:
+        """The open filter with its generated sections back in their places (Reorder generated sections)."""
+        rules, moved = reorder_generated(body["rules"], {"bis": bis.PREFIX, **body.get("prefixes", {})})
+        return {"rules": rules, "moved": moved}
+
+    def bis_read(self, body: dict) -> dict:
+        return bis.read_picks(body["rules"], self.data)
+
+    def complete(self, body: dict) -> dict:
+        """The open filter with the template's sections it lacks (Add missing sections)."""
+        template = load_template(self.template_file, self.config, self.data)
+        return add_missing_sections(self.config, self.data, template, body["rules"], body.get("options", {}))
 
     def cleanup(self, body: dict) -> dict:
         """What each way of freeing rules would remove: {kind: {"rules": kept, "removed": [names]}}."""
@@ -302,7 +359,8 @@ def _handler(api: Api):
             routes = {"/api/filter": api.save, "/api/leveling": api.leveling, "/api/match": api.match,
                       "/api/idols": api.idols, "/api/idols/read": api.idols_read,
                       "/api/refresh": api.refresh, "/api/cleanup": api.cleanup, "/api/filter/delete": api.delete,
-                      "/api/new": api.new,
+                      "/api/new": api.new, "/api/complete": api.complete, "/api/bis": api.bis,
+                      "/api/bis/read": api.bis_read, "/api/reorder": api.reorder,
                       "/api/template/rebuild": api.rebuild_template}
             fn = routes.get(urlparse(self.path).path)
             if not fn:

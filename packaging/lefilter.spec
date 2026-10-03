@@ -42,7 +42,7 @@ Path(workpath).mkdir(parents=True, exist_ok=True)
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas,
-    name="LastEpochItemFilterEditor",
+    name="LEIFEG",         # Last Epoch Item Filter Editor / Generator
     console=True,          # status and errors show in the console window; closing it stops the editor
     upx=False,
 )

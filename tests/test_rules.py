@@ -1,6 +1,9 @@
+import tomllib
+from pathlib import Path
+
 import pytest
 
-from lefilter.rules import ConfigError, RuleSpec, categorize, plan_rules
+from lefilter.rules import UPDATED_GROUP_RULES, ConfigError, RuleSpec, categorize, parse_groups, plan_rules
 
 THRESHOLDS = {"uncommon": 0.25, "rare": 0.5, "very_rare": 0.75, "extremely_rare": 0.95}
 
@@ -94,7 +97,21 @@ def test_auto_labels():
     assert RuleSpec(lp_min=2).auto_label() == "2LP+"
     assert RuleSpec(ww_min=17).auto_label() == "17+ WW"
     assert RuleSpec(ww_max=16).auto_label() == "0-16 WW"
+    assert RuleSpec(ww_min=15, ww_max=18).auto_label() == "15-18 WW"
     assert RuleSpec().auto_label() == "all"
+
+
+def test_weaver_brackets_and_old_default_configs_get_them():
+    shipped = tomllib.loads((Path(__file__).parent.parent / "config.toml").read_text(encoding="utf-8"))
+    weaver = next(g for g in shipped["group"] if g["name"] == "WEAVER")
+    old, new = UPDATED_GROUP_RULES["WEAVER"]
+    assert weaver["rules"] == new
+    names = [r.name for r in plan_rules(config(weaver), [unique(1, "Woven", ww=True)]).rules]
+    assert names == ["[A] WEAVER - 19+ WW", "[A] WEAVER - 15-18 WW", "[A] WEAVER - 0-14 WW"]
+    released = {**weaver, "rules": old}                            # a v0.2.0 config.toml copy
+    assert [r.__dict__ for r in parse_groups(config(released))[0].rules] == [r.__dict__ for r in parse_groups(config(weaver))[0].rules]
+    mine = {**weaver, "rules": [{**old[0], "color": 9}, old[1]]}   # changed by the user: stays theirs
+    assert [r.color for r in parse_groups(config(mine))[0].rules] == [9, 2]
 
 
 def test_set_groups_use_set_rarity_and_headers_become_separators():

@@ -1,7 +1,7 @@
 """Human-readable summary of what the generated filter contains."""
 from __future__ import annotations
 
-from .leveling import TOGGLE_BY_KEY, LevelingPlan
+from .leveling import SECTION_LABELS, TOGGLE_BY_KEY, LevelingPlan
 from .rules import CATEGORIES, Plan, categorize, lpl_histogram
 
 
@@ -58,9 +58,13 @@ def leveling_markdown(lev: LevelingPlan, data: dict) -> str:
         for t, windows in lev.windows.items():
             out.append(f"- **{names.get(t, t)}**: " + "; ".join(
                 f"{w.min}-{w.max}: " + ", ".join(f"{s['name']} ({s['level']})" for s in w.bases) for w in windows))
-    out += ["", "### Affixes per toggle", ""]
-    for key, affixes in lev.picked.items():
-        out.append(f"- **{TOGGLE_BY_KEY[key].label}** ({len(affixes)}): " + (", ".join(a["name"] for a in affixes) or "none"))
+    out += ["", "### Affixes per toggle (as each kind of gear takes them)", ""]
+    for section, toggles in lev.picked.items():
+        for key, affixes in toggles.items():
+            out.append(f"- {SECTION_LABELS[section]} · **{TOGGLE_BY_KEY[key].label}** ({len(affixes)}): "
+                       + (", ".join(a["name"] for a in affixes) or "none"))
+    if lev.class_affixes:
+        out.append(f"- **Class affixes** ({len(lev.class_affixes)}): " + ", ".join(a["name"] for a in lev.class_affixes))
     return "\n".join(out)
 
 

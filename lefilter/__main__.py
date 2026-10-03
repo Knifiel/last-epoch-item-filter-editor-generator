@@ -19,7 +19,7 @@ from .paths import (CACHE_DIR, CONFIG_FILE, DATA_DIR, FROZEN, OUT_DIR, TEMPLATE_
                     save_game_dir, saved_game_dir)
 from .leveling import LevelingPlan, parse_options, plan_leveling
 from .sections import RuleInfo, place
-from .starter import ensure_template
+from .starter import describe_template_update, sync_template
 from .report import build_report, histogram_markdown, leveling_markdown
 from .rules import ConfigError, Rule, RuleSpec, plan_affix_rules, plan_class_hide, plan_rules
 from .tools import ToolError
@@ -127,16 +127,18 @@ def _write_checked(path: Path, text: str, force: bool) -> None:
 
 def _resolve_base(base_ref: str, config: dict, data: dict) -> Path:
     """`base` as given, relative to the project, or in the game's Filters folder. The new-filter
-    template is generated when it's the one asked for and doesn't exist yet."""
+    template, when it's the one asked for, is generated if missing and brought up to this program
+    version first (sync_template)."""
+    if (USER_DIR / base_ref).resolve() == TEMPLATE_FILE.resolve():   # brought up to this version first
+        update = sync_template(TEMPLATE_FILE, config, data, CACHE_DIR / "backups")
+        if update:
+            print(describe_template_update(update, TEMPLATE_FILE))
+        return TEMPLATE_FILE
     filters_dir = find_filters_dir()
     candidates = [Path(base_ref), USER_DIR / base_ref] + ([filters_dir / base_ref] if filters_dir else [])
     for c in candidates:
         if c.is_file():
             return c
-    if (USER_DIR / base_ref).resolve() == TEMPLATE_FILE.resolve():
-        ensure_template(TEMPLATE_FILE, config, data)
-        print(f"Generated the new-filter template {TEMPLATE_FILE}")
-        return TEMPLATE_FILE
     sys.exit("base filter not found; tried:\n  " + "\n  ".join(str(c) for c in candidates))
 
 

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from lefilter.filterdoc import new_rule, parse_rule_blocks
@@ -134,10 +136,11 @@ def gaffix(aid, name, category="c", rolls_on=None, weight=1.0, cls=0, special=0)
             "idol": False, "prefix": True, "level": 0, "weight": weight, "rolls_on": rolls_on or every}
 
 
+GEAR = [TYPE_IDS[t] for t in (*ARMOUR_TYPES, *JEWELRY_TYPES)]   # health doesn't roll on weapons
 FULL = {
     **DATA,
-    "affixes": [gaffix(30, "Increased Physical Damage"), gaffix(25, "Added Health", category="Health"),
-                gaffix(36, "Hybrid Health", category="Health", weight=0.1),
+    "affixes": [gaffix(30, "Increased Physical Damage"), gaffix(25, "Added Health", category="Health", rolls_on=GEAR),
+                gaffix(36, "Hybrid Health", category="Health", rolls_on=GEAR, weight=0.1),
                 gaffix(719, "Physical Penetration and Minion Physical Penetration", weight=0.15),
                 gaffix(33, "Physical Penetration", rolls_on=[20], weight=0.3),
                 gaffix(563, "Level of Rive", category="Sentinel", cls=8, rolls_on=[0, 1]),
@@ -167,6 +170,12 @@ def test_bis_rules_per_slot_with_build_affixes_and_no_bases():
     bare = plan_bis(FULL_CONFIG, FULL, {})
     assert bare[1].name == "BIS - Weapon (pick type & bases)" and bare[1].item_types == []
     assert not any(r.spec.enabled for r in bare[1:])            # nothing to go on yet: switched off
+    no_weapon = plan_bis(FULL_CONFIG, FULL, {"defence": ["health"], "damage": ["physical"]})
+    assert no_weapon[1].affix_ids == [30, 719]                  # only affixes that roll on weapons
+    sentinel = plan_bis(FULL_CONFIG, FULL, {**BUILD, "class_affixes": ["Level of Rive"]}, "Sentinel")
+    helmet, body, belt = sentinel[2:5]
+    assert 563 in helmet.affix_ids and 563 in body.affix_ids and 563 not in belt.affix_ids
+    assert 563 not in plan_bis(FULL_CONFIG, FULL, {**BUILD, "class_affixes": ["Level of Rive"]}, "Mage")[2].affix_ids
 
 
 def test_shatter_rules():
@@ -195,7 +204,7 @@ def test_new_from_template_applies_class_and_build(tmp_path):
     assert not any(r["enabled"] for r in template["rules"] if r["name"].startswith(("[A] Hide non-", "SHATTER - ")) and "RARE-ROLL" not in r["name"])
     next(r for r in template["rules"] if r["name"] == "ALL T8")["color"] = 3   # template edits carry over
     doc = new_from_template(FULL_CONFIG, FULL, template, {"name": "Sentinel", "character_class": "Sentinel",
-                                                          "fill_bis": True, "leveling": BUILD})
+                                                          "leveling": BUILD})
     by = {r["name"]: r for r in doc["rules"]}
     assert doc["header"]["name"] == "Sentinel" and by["ALL T8"]["color"] == 3
     assert doc["header"]["icon"] == 5 and template["header"]["icon"] == 0      # Sentinel's filter icon
@@ -205,6 +214,163 @@ def test_new_from_template_applies_class_and_build(tmp_path):
     assert not by["[A] Hide non-Mage class non-legendary items"]["enabled"]
     assert by["SHATTER - SENTINEL AFFIXES"]["enabled"] and not by["SHATTER - ROGUE AFFIXES"]["enabled"]
     names = [r["name"] for r in doc["rules"]]
-    assert names.index("BIS - Two Handed Sword (pick bases)") == names.index("------ BIS ITEMS (pick the bases) ------") + 1
-    assert by["BIS - Helmet (pick bases)"]["enabled"]
+    # a blank slate: the BiS rules stay the template's generic, switched-off ones
+    assert names.index("BIS - Weapon (pick type & bases)") == names.index("------ BIS ITEMS (pick the bases) ------") + 1
+    assert not by["BIS - Helmet (pick bases)"]["enabled"]
     assert names.index("ALL T8") < names.index("DOUBLE T7")
+
+
+def test_add_missing_sections_completes_a_uniques_only_filter():
+    from lefilter.starter import add_missing_sections
+    template = make_template(FULL_CONFIG, FULL)
+    # what `build --standalone` writes: the unique groups only, then a leveling rule added on top
+    uniques = refresh_generated(FULL_CONFIG, FULL, [])["rules"]
+    uniques = [r for r in uniques if not r["name"].startswith(("[A] ALWAYS SHOW", "[A] Hide non-"))]
+    leveling = parse_rule_blocks([render_rule(r) for r in plan_rules(FULL_CONFIG, FULL["uniques"]).rules[:1]])[0]
+    leveling["name"] = "[L] Helmet 0-59"
+    rules = uniques + [leveling]
+    res = add_missing_sections(FULL_CONFIG, FULL, template, rules, {"character_class": "Sentinel"})
+    names = [r["name"] for r in res["rules"]]
+    assert names[0] == "[A] ALWAYS SHOW - PERSONAL"
+    assert names.index("------ BIS ITEMS (pick the bases) ------") < names.index("ALL T8") < names.index("[A] --- UNIQUES ---")
+    assert names.index("[A] Hide non-Rogue class non-legendary items") < names.index("SHATTER - RARE-ROLL AFFIXES")
+    assert names[-2:] == ["[L] Helmet 0-59", "HIDE REST"]      # the catch-all below the leveling section
+    by = {r["name"]: r for r in res["rules"]}
+    assert not by["BIS - Helmet (pick bases)"]["enabled"] and by["SHATTER - SENTINEL AFFIXES"]["enabled"]
+    assert by["[A] Hide non-Sentinel class non-legendary items"]["enabled"]
+    assert not by["[A] Hide non-Mage class non-legendary items"]["enabled"]
+    assert "HIDE REST" in res["added"] and "[L] Helmet 0-59" not in res["added"]
+    again = add_missing_sections(FULL_CONFIG, FULL, template, res["rules"], {"character_class": "Sentinel"})
+    assert again["added"] == [] and [r["name"] for r in again["rules"]] == names   # nothing left to add
+
+
+def _r(name, color=0, enabled=True):
+    return {"name": name, "type": "SHOW", "conditions": [], "color": color, "enabled": enabled}
+
+
+def test_reconcile_template_keeps_user_edits_and_removals():
+    from lefilter.starter import reconcile_template
+    base = [_r("A"), _r("B"), _r("C"), _r("D"), _r("E")]
+    mine = [_r("A"), _r("B", color=3), _r("D"), _r("MY RULE"), _r("E")]          # B edited, C removed, own rule added
+    fresh = [_r("A", color=1), _r("NEW 1"), _r("B", color=2), _r("C", color=2), _r("E"), _r("NEW 2")]   # D dropped
+    rules, report = reconcile_template(base, mine, fresh)
+    assert [(r["name"], r["color"]) for r in rules] == [("A", 1), ("NEW 1", 0), ("B", 3), ("MY RULE", 0), ("E", 0),
+                                                        ("NEW 2", 0)]
+    assert report == {"added": ["NEW 1", "NEW 2"], "updated": ["A"], "kept": ["B"], "dropped": ["D"]}
+    # no copy as generated (a template from before the stamp): the user's rules stay, missing ones are added
+    rules, report = reconcile_template(None, mine, fresh)
+    assert [r["name"] for r in rules] == ["A", "NEW 1", "B", "C", "D", "MY RULE", "E", "NEW 2"]
+    assert rules[0]["color"] == 0 and report["added"] == ["NEW 1", "C", "NEW 2"]
+
+
+def test_sync_template_once_per_version(tmp_path, monkeypatch):
+    from lefilter import starter
+    from lefilter.filterdoc import parse_filter
+    path, backups = tmp_path / "templates" / "New filter.xml", tmp_path / "backups"
+    read = lambda p: parse_filter(p.read_bytes().decode("utf-8-sig"))
+    monkeypatch.setattr(starter, "__version__", "0.3.0")
+    assert starter.sync_template(path, FULL_CONFIG, FULL, backups)["created"]
+    assert starter.template_stamp(path) == "0.3.0" and starter.generated_copy(path).is_file()
+    assert starter.sync_template(path, FULL_CONFIG, FULL, backups) is None          # same version: nothing to do
+    doc = read(path)                                                               # the user edits the template
+    doc["rules"] = [r for r in doc["rules"] if r["name"] != "SHATTER - RARE-ROLL AFFIXES"]
+    next(r for r in doc["rules"] if r["name"] == "ALL T8")["color"] = 4
+    starter.write_template(path, doc, "0.3.0")
+    monkeypatch.setattr(starter, "__version__", "0.4.0")                           # a new version with a new rule
+    config = {**FULL_CONFIG, "exalted_rule": FULL_CONFIG["exalted_rule"] + [{"name": "EXALTED - QUAD T5", "min": 4, "tier": 5}]}
+    res = starter.sync_template(path, config, FULL, backups)
+    assert res["from"] == "0.3.0" and res["to"] == "0.4.0" and res["added"] == ["EXALTED - QUAD T5"]
+    names = [r["name"] for r in read(path)["rules"]]
+    assert "SHATTER - RARE-ROLL AFFIXES" not in names                             # removed stays removed
+    assert names.index("EXALTED - QUAD T5") == names.index("SINGLE T7") + 1
+    assert next(r for r in read(path)["rules"] if r["name"] == "ALL T8")["color"] == 4
+    assert starter.template_stamp(path) == "0.4.0" and Path(res["backup"]).is_file()
+    assert "0.3.0 -> 0.4.0" in (path.parent / ".generated" / "updates.log").read_text()
+    assert starter.sync_template(path, config, FULL, backups) is None
+
+
+
+def test_first_update_of_an_unstamped_template_keeps_removals(tmp_path, monkeypatch):
+    from lefilter import starter
+    from lefilter.filterdoc import new_rule, parse_filter, render_filter
+    from lefilter.filterxml import write_filter
+    read = lambda p: parse_filter(p.read_bytes().decode("utf-8-sig"))
+    path, backups = tmp_path / "templates" / "New filter.xml", tmp_path / "backups"
+    doc = make_template(FULL_CONFIG, FULL)                  # what v0.2.0 wrote: no stamp, no copy as generated
+    doc["rules"] = [r for r in doc["rules"] if r["name"] != "HIDE REST"]                       # the user removed it
+    doc["rules"].insert(1, starter.legacy_template_rules(FULL_CONFIG, FULL)["BIS - Idol Altar (pick bases & affixes)"])
+    write_filter(path, render_filter(doc))
+    monkeypatch.setattr(starter, "__version__", "0.3.0")
+    res = starter.sync_template(path, FULL_CONFIG, FULL, backups)
+    names = [r["name"] for r in read(path)["rules"]]
+    assert res["first"] and "HIDE REST" not in names and "HIDE REST" not in res["added"]
+    assert "BIS - Idol Altar (pick bases & affixes)" not in names and res["dropped"] == ["BIS - Idol Altar (pick bases & affixes)"]
+    # an update cut short after the template was written: the copy as generated gets repaired
+    copy = starter.generated_copy(path)
+    starter.write_template(copy, read(copy), "0.2.9")
+    assert starter.sync_template(path, FULL_CONFIG, FULL, backups) is None and starter.template_stamp(copy) == "0.3.0"
+
+
+def test_add_missing_sections_uses_the_configured_class_hide_name():
+    from lefilter.starter import add_missing_sections
+    config = {**FULL_CONFIG, "class_hide": {"add": True, "name": "No {class} stuff"}}
+    template = make_template(config, FULL)
+    uniques = [r for r in refresh_generated(config, FULL, [])["rules"] if "stuff" not in r["name"]]
+    res = add_missing_sections(config, FULL, template, uniques, {"character_class": "Rogue"})
+    by = {r["name"]: r for r in res["rules"]}
+    assert by["[A] No Rogue stuff"]["enabled"] and not by["[A] No Mage stuff"]["enabled"]
+
+
+def test_a_filled_in_legacy_placeholder_survives_the_first_update(tmp_path, monkeypatch):
+    from lefilter import starter
+    from lefilter.filterdoc import new_rule, parse_filter, render_filter
+    from lefilter.filterxml import write_filter
+    path = tmp_path / "templates" / "New filter.xml"
+    doc = make_template(FULL_CONFIG, FULL)
+    doc["rules"].insert(1, new_rule("BIS - Idol Altar (pick bases & affixes)",
+                                    conditions=[{"type": "SubTypeCondition", "types": ["IDOL_ALTAR"], "subtypes": [1, 2]}]))
+    write_filter(path, render_filter(doc))
+    monkeypatch.setattr(starter, "__version__", "0.3.0")
+    res = starter.sync_template(path, FULL_CONFIG, FULL, tmp_path / "backups")
+    names = [r["name"] for r in parse_filter(path.read_bytes().decode("utf-8-sig"))["rules"]]
+    assert "BIS - Idol Altar (pick bases & affixes)" in names and not res["dropped"]   # the user picked its bases
+
+
+
+def test_an_edited_legacy_placeholder_is_kept(tmp_path, monkeypatch):
+    from lefilter import starter
+    from lefilter.filterdoc import parse_filter, render_filter
+    from lefilter.filterxml import write_filter
+    path = tmp_path / "templates" / "New filter.xml"
+    doc = make_template(FULL_CONFIG, FULL)
+    altar = starter.legacy_template_rules(FULL_CONFIG, FULL)["BIS - Idol Altar (pick bases & affixes)"]
+    altar["color"] = 5                                      # recoloured, bases still unpicked
+    doc["rules"].insert(1, altar)
+    write_filter(path, render_filter(doc))
+    monkeypatch.setattr(starter, "__version__", "0.3.0")
+    res = starter.sync_template(path, FULL_CONFIG, FULL, tmp_path / "backups")
+    assert not res["dropped"] and "BIS - Idol Altar (pick bases & affixes)" in [
+        r["name"] for r in parse_filter(path.read_bytes().decode("utf-8-sig"))["rules"]]
+
+
+def test_first_update_swaps_the_old_weaver_brackets_unless_edited(tmp_path, monkeypatch):
+    from lefilter import rules, starter
+    from lefilter.filterdoc import parse_filter, render_filter
+    from lefilter.filterxml import write_filter
+    old, _ = rules.UPDATED_GROUP_RULES["WEAVER"]
+    config = {**FULL_CONFIG, "group": FULL_CONFIG["group"] + [{"name": "WEAVER", "categories": ["weaver"], "rules": old}]}
+    data = {**FULL, "uniques": FULL["uniques"] + [{**unique(9, "Woven"), "weavers_will": True}]}
+    path = tmp_path / "templates" / "New filter.xml"
+    with monkeypatch.context() as m:
+        m.setattr(rules, "UPDATED_GROUP_RULES", {})
+        doc = make_template(config, data)                   # what v0.2.0 wrote from its config.toml copy
+    by = {r["name"]: r for r in doc["rules"]}
+    assert set(by) >= {"[A] WEAVER - 17+ WW", "[A] WEAVER - 0-16 WW"}
+    by["[A] WEAVER - 0-16 WW"]["color"] = 5                 # the user recoloured one
+    write_filter(path, render_filter(doc))
+    monkeypatch.setattr(starter, "__version__", "0.3.0")
+    res = starter.sync_template(path, config, data, tmp_path / "backups")
+    names = [r["name"] for r in parse_filter(path.read_bytes().decode("utf-8-sig"))["rules"]]
+    weaver = [n for n in names if n.startswith("[A] WEAVER")]
+    assert weaver == ["[A] WEAVER - 19+ WW", "[A] WEAVER - 15-18 WW", "[A] WEAVER - 0-14 WW", "[A] WEAVER - 0-16 WW"]
+    assert res["dropped"] == ["[A] WEAVER - 17+ WW"]

@@ -24,6 +24,14 @@ BASE_TYPE_ALIASES = {"IDOLS": COMMON_IDOL_TYPES + CLASS_IDOL_TYPES}
 SLOT_KEYS = RULE_KEYS - {"label"} | {"name"}
 AFFIX_RULE_KEYS = RULE_KEYS - {"label", "lp_min", "lp_max", "ww_min", "ww_max"} | {"name", "affix_categories"}
 CLASS_HIDE_KEYS = {"add", "name", "rarity", "enabled_for"}
+# Group rules this version's config.toml changed: {group name: (as earlier versions had them, as
+# this one has them)}. The packaged app's config.toml is a copy from its first run, so a group
+# still having the old default gets the new one; a group the user changed stays theirs.
+UPDATED_GROUP_RULES = {
+    "WEAVER": ([{"ww_min": 17, "color": 2, "emphasized": True}, {"ww_max": 16, "color": 2}],      # v0.2.0
+               [{"ww_min": 19, "color": 7, "emphasized": True}, {"ww_min": 15, "ww_max": 18, "color": 2, "emphasized": True},
+                {"ww_max": 14, "color": 2}]),
+}
 
 
 class ConfigError(Exception):
@@ -176,7 +184,8 @@ def _check_keys(table: dict, allowed: set, where: str) -> None:
         raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)}; allowed: {sorted(allowed)}")
 
 
-def parse_groups(config: dict) -> list[Group]:
+def parse_groups(config: dict, upgrade: bool = True) -> list[Group]:
+    """The [[group]]s; upgrade=False keeps old default rules (UPDATED_GROUP_RULES) as they are."""
     groups = []
     for i, g in enumerate(config.get("group", [])):
         where = f"[[group]] #{i + 1} ({g.get('name', '?')})"
@@ -189,8 +198,9 @@ def parse_groups(config: dict) -> list[Group]:
         bad = [t for t in g.get("base_types", []) if t not in TYPE_IDS and t not in BASE_TYPE_ALIASES]
         if bad:
             raise ConfigError(f"{where}: unknown base_types {bad}; use item types like RING or {', '.join(BASE_TYPE_ALIASES)}")
+        old, new = UPDATED_GROUP_RULES.get(g["name"], (None, None)) if upgrade else (None, None)
         rules = []
-        for j, r in enumerate(g.get("rules", [])):
+        for j, r in enumerate(new if g.get("rules") == old else g.get("rules", [])):
             _check_keys(r, RULE_KEYS, f"{where} rule #{j + 1}")
             spec = RuleSpec(**r)
             if spec.action not in ("show", "hide"):
@@ -254,13 +264,13 @@ class UniqueIndex:
         return out
 
 
-def plan_rules(config: dict, uniques: list[dict]) -> Plan:
+def plan_rules(config: dict, uniques: list[dict], upgrade: bool = True) -> Plan:
     thresholds = {k: float(v) for k, v in config.get("rarity", {}).items()}
     missing = set(RARITY_TIERS) - set(thresholds)
     if missing:
         raise ConfigError(f"[rarity] missing thresholds: {sorted(missing)}")
     prefix = config.get("filter", {}).get("rule_prefix", "")
-    groups = parse_groups(config)
+    groups = parse_groups(config, upgrade)
     index = UniqueIndex(uniques)
     cat = {u["id"]: categorize(u, thresholds) for u in uniques}
 

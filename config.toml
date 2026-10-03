@@ -41,7 +41,8 @@ hide_other_uniques = true   # bottom rule hiding every unique/set no rule above 
 
 [template]
 # Starting-template filter: rules copied from `base` plus the generated rules.
-# Written as a new filter; the base file is never modified. `base` is a path (relative to
+# Written as a new filter; the base file is never modified (except the new-filter template,
+# which a new program version updates once, keeping your edits). `base` is a path (relative to
 # this project) or a file in the game's Filters folder. The default is the editor's
 # new-filter template, generated from the parts below when it doesn't exist.
 base = "templates/New filter.xml"
@@ -112,11 +113,11 @@ header = "------ EXALTED & LEGENDARY ------"
 legendary = { name = "SHOW ALL LEGENDARY ITEMS", color = 7, emphasized = true }
 hide_rest = { name = "HIDE EVERYTHING ELSE" }
 
-# BiS section (above the exalted rules, so it decides first): per slot a rule for its item
-# type with the build's affixes (the Leveling tab's toggles; weapons/off-hands: one rule per
-# type the build uses) at `tier`+, `min` of them on the item. Bases are left unpicked (every
-# base matches): choose the right ones per build. Rule options give the section its look.
-# (Idol altars are in the idol section: the editor's Idols and Idol Altars generator.)
+# BiS section (above the exalted rules, so it decides first): the template's generic BiS
+# rules - per slot its item type, no bases or affixes yet, switched off - which the editor's
+# Best in slot tab replaces with a build's (`tier` / `min`: what they'd ask for). Rule options
+# give the section its look. (Idol altars are in the idol section: the editor's Idols and
+# Idol Altars generator.)
 [bis]
 header = "------ BIS ITEMS (pick the bases) ------"
 tier = 7
@@ -214,8 +215,9 @@ rules = [
 name = "WEAVER"
 categories = ["weaver"]
 rules = [
-  { ww_min = 17, color = 2, emphasized = true },
-  { ww_max = 16, color = 2 },
+  { ww_min = 19, color = 7, emphasized = true },
+  { ww_min = 15, ww_max = 18, color = 2, emphasized = true },
+  { ww_max = 14, color = 2 },
 ]
 
 # --- random drops: rare and rarer show all with a 1+ LP split; -----------------------
@@ -381,19 +383,32 @@ rules = [
 enabled = false
 rule_prefix = "[L] "            # marks the section so it can be found and replaced
 header = "------- LEVELING (auto) -------"
-# Affix toggles. A damage type takes every affix named "<type> damage" / "<type> penetration"
-# (fire/cold/lightning include elemental); a focus its keyword; an attribute its affix plus
-# All Attributes (two-handers only); a defence toggle its category. Weapons use damage, focus
-# and attributes; armour, jewelry and off-hands all of them.
+# Affix toggles, per kind of gear: weapon_affixes, offhand_affixes, armour_affixes and
+# jewelry_affixes (jewelry and belts), each { damage = [...], focus = [...], attributes = [...],
+# defence = [...] }. A damage type takes every affix named "<type> damage" / "<type> penetration"
+# (fire/cold/lightning include elemental); a focus its keyword; an attribute its affix; a defence
+# toggle its category. Each kind of gear only takes the picked affixes that can roll on it
+# (Strength: armour, rings, relics; all_attributes, All Attributes: two-handed weapons only).
+# Weapons leave out defensive affixes (health on kill / hit, leech, dodge, mana ...) unless
+# weapon_affixes has defensive = true.
 #   damage:     physical, fire, cold, lightning, void, necrotic, poison
 #   focus:      melee, spell, throwing, bow, minion, crit, dot, ailments
-#   attributes: strength, dexterity, intelligence, attunement, vitality
-#   defence:    health, resistances, armour, dodge, block, ward, mana, movement, sustain, cooldown
-damage = ["physical"]
-focus = ["melee"]
-attributes = ["strength"]
-defence = ["health", "resistances"]
+#   attributes: strength, dexterity, intelligence, attunement, vitality, all_attributes
+#   defence:    health, resistances, armour, endurance, dodge, block, ward, mana, movement, sustain, cooldown
+# A kind of gear can also leave out single affixes its toggles (or class_affixes) give it:
+# exclude = ["Strength", ...] (names or ids; the editor's per-affix checkboxes write them).
+# (Configs from v0.2.0 and older list damage / focus / attributes / defence once for all gear;
+# that still works: every kind of gear left out starts from them, weapons without the defences
+# and with All Attributes for any attribute; armour there also meant endurance.)
+weapon_affixes = { damage = ["physical"], focus = ["melee"], attributes = ["all_attributes"], defensive = false }
+offhand_affixes = { damage = ["physical"], focus = ["melee"], defence = ["health", "resistances"] }
+armour_affixes = { focus = ["melee"], attributes = ["strength"], defence = ["health", "resistances"] }
+jewelry_affixes = { damage = ["physical"], focus = ["melee"], attributes = ["strength"], defence = ["health", "resistances"] }
 character_class = ""            # Primalist / Mage / Sentinel / Acolyte / Rogue: allows that class's affixes and bases
+# The class's class-specific affixes (skill levels ...) that count as build affixes where they
+# roll - helmets, body armours, relics - by name or id, e.g. ["Level of Rive", "Level of Smite"].
+# Only the chosen class's are used; the editor lists them by where they roll.
+class_affixes = []
 # Weapon / off-hand types (in-game names or ONE_HANDED_SWORD style): their bases are batched
 # by level requirement into `step`-level windows; each window's rule is on from its first
 # character level until the next window starts, and everything is off from level `cap`.
@@ -417,4 +432,5 @@ jewelry = true
 good_bases = { BELT = ["Spidersilk Sash"], AMULET = ["Bone Amulet", "Gold Amulet"], RING = ["Gold Ring"], RELIC = ["Spirit Catcher", "Scrying Eye", "Rune Quill", "Argent Crest", "Putrid Souls", "Ancient Coins", "Ruby Dice", "Antidote Vial"] }
 rarity = ["MAGIC", "RARE", "EXALTED"]
 # Looks per rule kind (rule options as above): weapon_affix, weapon_base, gear, gear_single, jewelry, good_base
+# (color = -1: no recolour, for kinds that have a default colour)
 style = { weapon_affix = { color = 14, emphasized = true }, gear = { color = 13, emphasized = true }, jewelry = { color = 13 }, good_base = { color = 15, emphasized = true } }

@@ -1,6 +1,6 @@
 import pytest
 
-from lefilter.leveling import LevelingOptions, gear_affixes, level_windows, parse_options, plan_leveling, toggle_affixes
+from lefilter.leveling import gear_affixes, level_windows, parse_options, plan_leveling, toggle_affixes
 from lefilter.sections import RuleInfo, insert_position, place
 from lefilter.rules import ConfigError
 
@@ -29,8 +29,9 @@ BASES = [
 ]
 
 
-def affix(aid, name, category="Damage Type", cls=0, special=0, idol=False, rolls_on=(16, 18, 0, 20), prefix=True):
-    return {"id": aid, "name": name, "category": category, "header": "", "class": cls, "special": special,
+def affix(aid, name, category="Damage Type", cls=0, special=0, idol=False, rolls_on=(16, 18, 0, 20), prefix=True,
+          header=""):
+    return {"id": aid, "name": name, "category": category, "header": header, "class": cls, "special": special,
             "idol": idol, "prefix": prefix, "level": 0, "rolls_on": list(rolls_on)}
 
 
@@ -52,6 +53,14 @@ AFFIXES = [
     affix(50, "All Attributes", category="Attributes", rolls_on=(12, 13, 14, 16)),
     affix(501, "Strength", category="Attributes", cls=11, rolls_on=(0, 1, 3, 4, 21, 22)),
     affix(503, "Dexterity", category="Attributes", rolls_on=(0, 1, 3, 4, 17, 21, 22)),
+    affix(68, "Health On Kill", category="Health Recovery", rolls_on=(16,), header="Defensive"),
+    affix(69, "Melee Health Leech", category="Leech", rolls_on=(16, 0), header="Defensive"),
+    affix(42, "Lightning Damage And Leech", category="Leech", rolls_on=(16,), header="Defensive"),
+    affix(718, "Mana and Mana Regen", category="Mana", rolls_on=(16, 20), header="Other"),
+    affix(563, "Level of Rive", category="Sentinel", cls=8, rolls_on=(1,)),
+    affix(603, "Level of Smite", category="Sentinel", cls=8, rolls_on=(22,)),
+    affix(380, "Increased Smelters Wrath Damage", category="Sentinel", cls=8, rolls_on=(0, 1)),
+    affix(610, "Level of Fireball", category="Mage", cls=4, rolls_on=(0,)),
 ]
 DATA = {"bases": BASES, "affixes": AFFIXES}
 
@@ -76,21 +85,21 @@ def test_level_windows_first_window_starts_at_zero():
 
 
 def test_damage_type_picks_named_affixes_but_not_defences_or_specials():
-    picked = toggle_affixes(LevelingOptions(damage=["physical"]), AFFIXES)["physical"]
+    picked = toggle_affixes({"damage": ["physical"]}, AFFIXES)["physical"]
     assert names(picked) == ["Increased Physical Damage", "Physical Penetration", "Added Melee Physical Damage",
                              "Added Bow Physical Damage"]
 
 
 def test_fire_includes_elemental():
-    picked = toggle_affixes(LevelingOptions(damage=["fire"]), AFFIXES)["fire"]
+    picked = toggle_affixes({"damage": ["fire"]}, AFFIXES)["fire"]
     assert names(picked) == ["Increased Fire Damage", "Increased Elemental Damage"]
 
 
 def test_delivery_focus_narrows_damage_type_picks():
-    picked = toggle_affixes(LevelingOptions(damage=["physical"], focus=["melee"]), AFFIXES)
+    picked = toggle_affixes({"damage": ["physical"], "focus": ["melee"]}, AFFIXES)
     assert "Added Bow Physical Damage" not in names(picked["physical"])
     assert "Added Melee Physical Damage" in names(picked["physical"])
-    assert names(picked["melee"]) == ["Added Melee Physical Damage", "Increased Melee Damage"]
+    assert names(picked["melee"]) == ["Added Melee Physical Damage", "Increased Melee Damage", "Melee Health Leech"]
 
 
 def test_class_specific_affixes_only_for_their_class():
@@ -192,12 +201,90 @@ def test_good_bases_for_any_slot_stay_on_until_cap_above_the_windows():
     assert minion.rules == [] and "Helmet good bases: none of the build's affixes roll on it; no rule generated" in minion.warnings
 
 
-def test_attributes_count_like_damage_and_add_all_attributes():
-    opts = LevelingOptions(attributes=["strength"])
-    assert names(toggle_affixes(opts, AFFIXES)["strength"]) == ["All Attributes", "Strength"]
-    plan = plan_leveling(parse_options({"attributes": ["strength"], "weapons": ["2H Sword"], "weapon_mode": "require",
+def test_attributes_count_where_they_roll_and_all_attributes_is_its_own_toggle():
+    picked = toggle_affixes({"attributes": ["strength", "all_attributes"]}, AFFIXES)
+    assert names(picked["strength"]) == ["Strength"] and names(picked["all_attributes"]) == ["All Attributes"]
+    # shared toggles (v0.2.0): a single attribute stands for All Attributes on weapons
+    plan = plan_leveling(parse_options({"attributes": ["strength"], "weapons": ["2H Sword"], "offhands": ["Shield"],
+                                        "armour": True, "jewelry": True, "weapon_mode": "require", "header": ""},
+                                       BASES), DATA)
+    by_type = {r.item_types[0]: r for r in plan.rules}
+    assert plan.picked["weapons"] == {"all_attributes": [AFFIXES[14]]}
+    assert by_type["TWO_HANDED_SWORD"].affix_ids == [50]     # All Attributes: Strength doesn't roll on weapons
+    assert by_type["SHIELD"].affix_ids is None               # neither rolls on shields: bases only
+    assert by_type["HELMET"].affix_ids == [501] and by_type["BELT"].affix_ids == [501]   # rings and relics
+    assert names(plan.rule_affixes["[L] Jewelry & belts build affix 0-59"]) == ["Strength"]
+
+
+def test_each_kind_of_gear_has_its_own_toggles():
+    opts = parse_options({"weapons": ["2H Sword"], "offhands": ["Shield"], "armour": True, "jewelry": True,
+                          "weapon_mode": "require", "header": "", "good_bases": {"AMULET": [], "RING": [], "RELIC": []},
+                          "weapon_affixes": {"damage": ["physical"]}, "offhand_affixes": {"defence": ["health"]},
+                          "armour_affixes": {"attributes": ["strength"]},
+                          "jewelry_affixes": {"damage": ["fire"], "defence": ["health"]}}, BASES)
+    plan = plan_leveling(opts, DATA)
+    by_type = {r.item_types[0]: r for r in plan.rules}
+    assert by_type["TWO_HANDED_SWORD"].affix_ids == [30, 63] and by_type["SHIELD"].affix_ids == [25]
+    assert by_type["HELMET"].affix_ids == [501] and by_type["BELT"].affix_ids == [9, 12, 25]
+    assert {s: list(t) for s, t in plan.picked.items()} == {"weapons": ["physical"], "offhands": ["health"],
+                                                             "armour": ["strength"], "jewelry": ["fire", "health"]}
+    assert names(plan.picked["jewelry"]["fire"]) == ["Increased Fire Damage", "Increased Elemental Damage"]
+
+
+def test_shared_toggles_of_older_configs_start_every_section():
+    opts = parse_options({"damage": ["physical"], "defence": ["health", "attributes"]}, BASES)
+    every = ["strength", "dexterity", "intelligence", "attunement", "vitality"]
+    assert opts.weapon_affixes == {"damage": ["physical"], "focus": [], "attributes": ["all_attributes"], "defence": [],
+                                   "defensive": False, "exclude": []}
+    assert opts.armour_affixes == opts.jewelry_affixes == opts.offhand_affixes == {
+        "damage": ["physical"], "focus": [], "attributes": every, "defence": ["health"], "exclude": []}
+    # v0.2.0's armour toggle also took endurance: those configs keep it
+    assert parse_options({"defence": ["armour"]}, BASES).armour_affixes["defence"] == ["armour", "endurance"]
+    assert parse_options({"armour_affixes": {"defence": ["armour"]}}, BASES).armour_affixes["defence"] == ["armour"]
+    mixed = parse_options({"damage": ["fire"], "armour_affixes": {"defence": ["health"]}}, BASES)
+    assert mixed.armour_affixes["damage"] == [] and mixed.jewelry_affixes["damage"] == ["fire"]
+    with pytest.raises(ConfigError, match="armour_affixes defence: unknown"):
+        parse_options({"armour_affixes": {"defence": ["laser"]}}, BASES)
+    with pytest.raises(ConfigError, match="armour_affixes"):
+        parse_options({"armour_affixes": {"defensive": True}}, BASES)   # only weapons have it
+
+
+def test_weapons_leave_out_defensive_affixes_unless_asked():
+    toggles = {"damage": ["lightning"], "focus": ["melee"], "defence": ["sustain", "mana"]}
+    base = {"weapons": ["2H Sword"], "weapon_mode": "require", "header": ""}
+    shared = plan_leveling(parse_options({**base, **toggles}, BASES), DATA)
+    assert 69 not in shared.rules[0].affix_ids              # Melee Health Leech: the melee toggle, but Defensive
+    off = plan_leveling(parse_options({**base, "weapon_affixes": toggles}, BASES), DATA)
+    assert set(off.rules[0].affix_ids) == {9, 42, 63, 89}   # Lightning Damage And Leech stays: it's a damage pick
+    assert names(off.picked["weapons"]["sustain"]) == ["Lightning Damage And Leech"]
+    assert off.warnings == ["Weapons: Mana: only defensive affixes here, which weapons leave out "
+                            "(tick Include defensive affixes - weapon_affixes.defensive - to count them)"]
+    on = plan_leveling(parse_options({**base, "weapon_affixes": {**toggles, "defensive": True}}, BASES), DATA)
+    assert {68, 69, 42, 718} <= set(on.rules[0].affix_ids) and not on.warnings
+    armour = plan_leveling(parse_options({"armour": True, "header": "", "armour_affixes": toggles}, BASES), DATA)
+    assert 69 in armour.rules[0].affix_ids                  # other gear keeps them
+    idle = plan_leveling(parse_options({"attributes": ["vitality"], "defence": ["health"], "offhands": ["Shield"],
                                         "header": ""}, BASES), DATA)
-    assert all(r.affix_ids == [50] for r in plan.rules)     # weapons use attributes, not defences
+    assert idle.warnings == []                               # nothing of Vitality rolls on off-hands: not offered there
+
+
+def test_class_affixes_count_on_their_slots_for_their_class():
+    table = {"defence": ["health"], "armour": True, "jewelry": True, "header": "", "character_class": "Sentinel",
+             "class_affixes": [563, "level of smite", "Level of Fireball", 380]}
+    plan = plan_leveling(parse_options(table, BASES), DATA)
+    assert names(plan.class_affixes) == ["Level of Rive", "Level of Smite", "Increased Smelters Wrath Damage"]
+    assert "class_affixes: not Sentinel affixes, left out: Level of Fireball" in plan.warnings
+    armour = plan.rule_affixes["[L] Armour 2+ build affixes 0-59"]
+    assert {563, 380} <= {a["id"] for a in armour} and 603 not in {a["id"] for a in armour}
+    relic = plan.rule_affixes["[L] Relic good bases build affix 0-59"]
+    assert {a["id"] for a in relic} == {25, 603}
+    assert 563 not in {a["id"] for a in plan.rule_affixes["[L] Jewelry & belts build affix 0-59"]}
+    no_class = plan_leveling(parse_options({**table, "character_class": ""}, BASES), DATA)
+    assert no_class.class_affixes == [] and "class_affixes: no class chosen; class affixes left out" in no_class.warnings
+    no_armour = plan_leveling(parse_options({**table, "armour": False}, BASES), DATA)
+    assert "Level of Rive: rolls only on Body Armor, none of which is picked" in no_armour.warnings
+    with pytest.raises(ConfigError, match="class_affixes"):
+        parse_options({"class_affixes": "Level of Rive"}, BASES)
 
 
 def test_old_attributes_defence_toggle_becomes_every_attribute():
@@ -235,3 +322,44 @@ def test_place_replaces_previous_section_in_place():
     infos = [info(n) for n in items]
     out, removed, at = place(items, infos, ["[L] new"], "[L] ")
     assert out == ["a", "[L] new", "b", "c"] and removed == 2 and at == 1
+
+
+def test_endurance_is_its_own_toggle():
+    affixes = [affix(70, "Increased Armor", category="Resistance and Armor", rolls_on=(0,)),
+               affix(71, "Endurance", category="Resistance and Armor", rolls_on=(0,)),
+               affix(72, "Endurance Threshold", category="Resistance and Armor", rolls_on=(0,)),
+               affix(73, "Minion Endurance", category="Minion", rolls_on=(0,))]
+    picked = toggle_affixes({"defence": ["armour", "endurance"]}, affixes)
+    assert names(picked["armour"]) == ["Increased Armor"]
+    assert names(picked["endurance"]) == ["Endurance", "Endurance Threshold"]
+
+
+def test_sections_can_exclude_single_affixes():
+    table = {"armour": True, "jewelry": True, "header": "",
+             "armour_affixes": {"defence": ["health"], "attributes": ["strength"], "exclude": [501]},
+             "jewelry_affixes": {"defence": ["health"], "attributes": ["strength"], "exclude": ["strength"]}}
+    plan = plan_leveling(parse_options(table, BASES), DATA)
+    assert names(plan.picked["armour"]["strength"]) == [] and names(plan.candidates["armour"]["strength"]) == ["Strength"]
+    assert plan.excluded["armour"] == {501} and plan.excluded["jewelry"] == {501}   # by id, or by name
+    assert [a["id"] for a in plan.rule_affixes["[L] Armour 2+ build affixes 0-59"]] == [25]
+    assert not [w for w in plan.warnings if "Strength" in w]          # an excluded toggle isn't "missing"
+    assert names(plan.picked["jewelry"]["health"]) == ["Added Health"]
+    with pytest.raises(ConfigError, match="exclude must be a list"):
+        parse_options({"armour_affixes": {"exclude": "Strength"}}, BASES)
+
+
+def test_no_recolour_can_be_written_as_minus_one():
+    opts = parse_options({"style": {"weapon_affix": {"color": -1, "emphasized": True}, "gear": {"color": None}}}, BASES)
+    assert opts.spec("weapon_affix").color is None and opts.spec("weapon_affix").emphasized
+    assert opts.spec("gear").color is None and opts.spec("jewelry").color == 13
+
+
+def test_a_class_affix_excluded_in_one_section_stays_out_of_it_only():
+    table = {"armour": True, "jewelry": True, "header": "", "character_class": "Sentinel",
+             "class_affixes": [563, 380, 603], "armour_affixes": {"defence": ["health"], "exclude": ["level of rive"]},
+             "jewelry_affixes": {"defence": ["health"]}}
+    plan = plan_leveling(parse_options(table, BASES), DATA)
+    assert plan.excluded["armour"] == {563}
+    armour = [a["id"] for a in plan.rule_affixes["[L] Armour 2+ build affixes 0-59"]]
+    assert 563 not in armour and 380 in armour                       # the other class pick stays
+    assert 603 in [a["id"] for a in plan.rule_affixes["[L] Jewelry & belts build affix 0-59"]]

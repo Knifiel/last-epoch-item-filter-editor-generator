@@ -16,6 +16,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: The tag matches the program version (lefilter/__init__.py)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: python -c "import lefilter, sys; v = 'v' + lefilter.__version__; sys.exit(0 if sys.argv[1] == v else f'tag {sys.argv[1]} but lefilter.__version__ says {v}')" "${{ github.ref_name }}"
       - run: python -m pytest -q
   build:
     needs: test
@@ -23,9 +26,9 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            asset: LastEpochItemFilterEditor-windows.zip
+            asset: LEIFEG-windows.zip
           - os: ubuntu-22.04          # older glibc: the binary also runs on newer distros (Arch, SteamOS ...)
-            asset: LastEpochItemFilterEditor-linux.tar.gz
+            asset: LEIFEG-linux.tar.gz
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -36,7 +39,7 @@ jobs:
       - run: python -m PyInstaller packaging/lefilter.spec --noconfirm
       - name: Self-test the executable (every bundled component loads)
         shell: bash
-        run: dist/LastEpochItemFilterEditor selftest
+        run: dist/LEIFEG selftest
       - run: python packaging/collect_licenses.py dist/THIRD_PARTY_LICENSES.txt build/lefilter/bundled-binaries.txt
       - name: Package (Windows)
         if: runner.os == 'Windows'
