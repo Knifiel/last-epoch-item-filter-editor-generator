@@ -282,8 +282,18 @@ def gear_affixes(affixes: list[dict], character_class: str = "") -> list[dict]:
             and (not a["class"] or a["class"] & allowed)]
 
 
+def _phrase_name(a: dict) -> str:
+    """The name toggles look for phrases in: the affix asset's own (stable across the game's renames)."""
+    return (a.get("internal_name") or a["name"]).lower()
+
+
+def _names(a: dict) -> set[str]:
+    """Every name an affix goes by in a config (exclude, class_affixes): the game's and its own."""
+    return {_norm(a["name"]), _norm(a.get("internal_name") or a["name"])}
+
+
 def _matches(t: Toggle, a: dict) -> bool:
-    name = a["name"].lower()
+    name = _phrase_name(a)
     hit = any(p in name for p in t.phrases) or a["category"] in t.categories
     return hit and not any(x in name for x in t.exclude)
 
@@ -300,7 +310,7 @@ def toggle_affixes(picks: dict, affixes: list[dict], character_class: str = "", 
         if delivery and key not in DELIVERY and key != "minion":
             # "Added Melee Physical Damage" only counts for a physical build that also hits in melee.
             chosen = [a for a in chosen
-                      if not (mentioned := [d for d in DELIVERY if d in a["name"].lower()])
+                      if not (mentioned := [d for d in DELIVERY if d in _phrase_name(a)])
                       or any(d in delivery for d in mentioned)]
         picked[key] = chosen
     return picked
@@ -319,7 +329,7 @@ def class_affixes(opts: LevelingOptions, affixes: list[dict]) -> tuple[list[dict
     if not opts.character_class:
         return [], ["class_affixes: no class chosen; class affixes left out"]
     choices = class_affix_choices(affixes, opts.character_class)
-    by_id, by_name = {a["id"]: a for a in choices}, {_norm(a["name"]): a for a in choices}
+    by_id, by_name = {a["id"]: a for a in choices}, {n: a for a in choices for n in _names(a)}
     picked, unknown = {}, []
     for entry in opts.class_affixes:
         a = by_id.get(entry) if isinstance(entry, int) else by_name.get(_norm(entry))
@@ -353,7 +363,8 @@ def excluded_ids(opts: LevelingOptions, affixes: list[dict], unknown: list[str] 
     it). Names that match no affix are appended to `unknown` as "<option key>: <name>"."""
     by_name: dict[str, set[int]] = {}
     for a in affixes:
-        by_name.setdefault(_norm(a["name"]), set()).add(a["id"])
+        for n in _names(a):
+            by_name.setdefault(n, set()).add(a["id"])
     out = {}
     for s, (key, _) in SECTIONS.items():
         ids = set()

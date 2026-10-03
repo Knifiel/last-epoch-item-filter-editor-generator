@@ -65,33 +65,78 @@ def place(items: list, infos: list[RuleInfo], new: list, prefix: str, section: s
 
 # Where each generated section goes in a filter that doesn't have it yet (and where
 # reorder_generated puts it back): place() keyword arguments.
-IDOL_PLACEMENT = {"section": "IDOL", "after": "SHATTER", "before": "UNIQUE", "fallback": "top"}   # after shatter, before uniques
+IDOL_PLACEMENT = {"section": "IDOL", "before": "UNIQUE", "fallback": "top"}   # right before the uniques
 LEVELING_PLACEMENT = {"section": "LEVELING", "fallback": "bottom"}   # above the bottom hide-everything rule
 BIS_PLACEMENT = {"section": "BIS", "fallback": "top"}
 
 
+# The top of a filter: the always-show rules, the shatter section (above the class hide rules, so
+# its rules for other classes' affixes can fire: those affixes give an item their class's
+# requirement), then the class hide rules (above every other rule, so other classes' items stay
+# out of all of them). Entries: [(rule name, condition-less)].
+
+def _leading(entries: list[tuple[str, bool]], top_names) -> int:
+    at = 0
+    while at < len(entries) and not entries[at][1] and entries[at][0] in top_names:
+        at += 1
+    return at
+
+
+def _shatter_span(entries: list[tuple[str, bool]], start: int = 0) -> tuple[int, int] | None:
+    """(first, end) of the first shatter section from `start`: a separator named like SHATTER and
+    the rules under it up to the next condition-less rule."""
+    for i in range(start, len(entries)):
+        if entries[i][1] and "SHATTER" in entries[i][0].upper():
+            j = i + 1
+            while j < len(entries) and not entries[j][1]:
+                j += 1
+            return i, j
+    return None
+
+
+def class_hide_index(entries: list[tuple[str, bool]], top_names) -> int:
+    """Where the class hide rules go in a filter without them: right below the always-show rules
+    leading it and the shatter section, if that comes right after them."""
+    at = _leading(entries, top_names)
+    span = _shatter_span(entries, at)
+    return span[1] if span and span[0] == at else at
+
+
+def _entries(rules: list[dict]) -> list[tuple[str, bool]]:
+    return [(r.get("name", ""), "raw" not in r and not r["conditions"]) for r in rules]
+
+
 def place_class_hide(rules: list[dict], top_names, hide_names) -> list[dict]:
-    """The class hide rules (named in hide_names) right below the always-show rules leading the
-    filter (named in top_names), else at the very top: they keep other classes' items out of every
-    rule below. The other rules keep their order."""
+    """The class hide rules (named in hide_names) where class_hide_index says. The other rules
+    keep their order."""
     is_hide = [("raw" not in r and r.get("name") in hide_names) for r in rules]
     rest = [r for r, h in zip(rules, is_hide) if not h]
-    at = 0
-    while at < len(rest) and "raw" not in rest[at] and rest[at].get("name") in top_names:
-        at += 1
+    at = class_hide_index(_entries(rest), top_names)
     return rest[:at] + [r for r, h in zip(rules, is_hide) if h] + rest[at:]
 
 
+def place_shatter(rules: list[dict], top_names, hide_names=()) -> list[dict]:
+    """The shatter section moved right below the always-show rules leading the filter (class hide
+    rules under it stay where they are). Unchanged without a shatter section."""
+    keep = [i for i, r in enumerate(rules) if "raw" in r or r.get("name") not in hide_names]
+    entries = _entries([rules[i] for i in keep])
+    span = _shatter_span(entries)
+    if span is None:
+        return list(rules)
+    block = {keep[i] for i in range(*span)}
+    rest = [r for i, r in enumerate(rules) if i not in block]
+    at = _leading(_entries(rest), top_names)
+    return rest[:at] + [rules[i] for i in sorted(block)] + rest[at:]
+
+
 def reorder_generated(rules: list[dict], prefixes: dict[str, str], top_names=(), hide_names=()) -> tuple[list[dict], list[str]]:
-    """The generated sections - the class hide rules (see place_class_hide), BiS rules, the idol
-    section, the leveling section; prefixes: {"bis", "idols", "leveling"} -> rule name prefix -
-    moved back to where they belong (see the placements), each only when the filter has that spot.
-    Returns (rules, labels of sections moved)."""
+    """The generated sections - BiS rules, the idol section, the leveling section; prefixes:
+    {"bis", "idols", "leveling"} -> rule name prefix - moved back to where they belong (see the
+    placements), each only when the filter has that spot; then the shatter section and the class
+    hide rules to the top (see above). Returns (rules, labels of what moved)."""
     placements = (("BiS rules", prefixes.get("bis"), BIS_PLACEMENT), ("idol section", prefixes.get("idols"), IDOL_PLACEMENT),
                   ("leveling section", prefixes.get("leveling"), LEVELING_PLACEMENT))
-    out, moved = place_class_hide(rules, set(top_names), set(hide_names)), []
-    if [id(r) for r in out] != [id(r) for r in rules]:
-        moved.append("class hide rules")
+    out, moved = list(rules), []
     for label, prefix, where in placements:
         if not prefix:
             continue
@@ -107,6 +152,12 @@ def reorder_generated(rules: list[dict], prefixes: dict[str, str], top_names=(),
         if at is None:   # no spot for it in this filter: leave it where it is
             continue
         new = rest[:at] + block + rest[at:]
+        if [id(r) for r in new] != [id(r) for r in out]:
+            moved.append(label)
+        out = new
+    top_names, hide_names = set(top_names), set(hide_names)
+    for label, step in (("shatter section", place_shatter), ("class hide rules", place_class_hide)):
+        new = step(out, top_names, hide_names)
         if [id(r) for r in new] != [id(r) for r in out]:
             moved.append(label)
         out = new

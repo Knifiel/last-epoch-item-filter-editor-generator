@@ -26,12 +26,13 @@ import UnityPy
 from . import affixtext, odin, tools
 from .game import Game, locale_bundles, prune_cache, snapshot
 from .i18n import TEXT_TABLES, write_languages
-from .gamedata import EQUIPMENT_TYPES, RARITY_COLOR_IDS
+from .gamedata import (ARMOUR_TYPES, EQUIPMENT_TYPES, JEWELRY_TYPES, OFFHAND_TYPES, RARITY_COLOR_IDS, TYPE_IDS,
+                       WEAPON_TYPES)
 
 from .paths import SCHEMA_DIR           # optional hand-made type trees (checked after the cached ones)
 
 WEAVERS_WILL = 1  # UniqueList.LegendaryType.WeaversWill
-DATA_VERSION = 15  # bump when data/uniques.json gains fields, so `build` re-extracts
+DATA_VERSION = 19  # bump when data/uniques.json gains fields, so `build` re-extracts
 
 
 class ExtractError(Exception):
@@ -270,30 +271,53 @@ def build_bases(items: dict, names: dict[str, str], lists: affixtext.PropertyLis
     return bases
 
 
+GEAR_IDS = {TYPE_IDS[t] for t in WEAPON_TYPES + OFFHAND_TYPES + ARMOUR_TYPES + JEWELRY_TYPES}
+NON_GEAR_MAX_TIER = 7   # T8 only rolls on equipment: an idol / idol altar affix's 8th tier never rolls
+FAKE_UNIQUE_MOD = 7     # AffixList.SpecialAffixType: the "Variant" mods of unique variants
+
+
+def _tier_lines(a: dict, lists, tables, words) -> list[dict]:
+    """affixtext.affix_lines, with the tiers an affix can't reach on what it rolls on left out."""
+    lines = affixtext.affix_lines(a, lists, tables or {}, words) if lists and lists.master else []
+    if not set(a["canRollOn"]) & GEAR_IDS:
+        lines = [{**line, "tiers": line["tiers"][:NON_GEAR_MAX_TIER]} for line in lines]
+    if a["specialAffixType"] == FAKE_UNIQUE_MOD and all(len({tuple(t) for t in line["tiers"]}) <= 1 for line in lines):
+        lines = [{**line, "tiers": line["tiers"][:1]} for line in lines]   # a unique variant's fixed mod, no tiers
+    return lines
+
+
 def build_affixes(data: dict, lists: affixtext.PropertyLists | None = None,
                   tables: dict[str, dict[str, str]] | None = None, words: dict[int, str] | None = None) -> list[dict]:
     """Affixes with what the in-game affix picker and the leveling generator need.
 
-    name = the loot-filter picker's name (its override where the game sets one), category = the
+    name = the loot-filter picker's name: its override where the game sets one, else the localized
+    display name (AffixContentGenerator / Affix.getAffixDisplayName: Item_Affix_<id>_DisplayName; for
+    the affixes whose name the game generates from the stat, that table holds the generated name),
+    internal_name = the asset's own name (what the leveling toggles match phrases in), category = the
     picker's category (header = its group), class = ClassRequirement bits that may roll it
     (0 = any), special = AFFIX_SPECIAL key (0 = ordinary affix), idol = idol-only, rolls_on = base
     type ids it can roll on, prefix = prefix (else suffix), lines = how its stats read in-game
     with per-tier rolls (affixtext; empty without the stat display rules), std = its standard
-    affix effect modifier, filter_name = whether name is the picker's override."""
+    affix effect modifier, filter_name = whether name is the picker's override, order = [header,
+    category] positions in the picker (it lists the headers and each one's categories in the game
+    data's order, a category's affixes by name)."""
     categories = data["affixDisplayCategories"]
     header = {c: h["name"] for h in data["categoryHeaders"] for c in h["categories"]}
+    order = {c: [i, j] for i, h in enumerate(data["categoryHeaders"]) for j, c in enumerate(h["categories"])}
     names = (tables or {}).get("Item_Affixes", {})
 
     def name(a):
         if a.get("affixLootFilterOverrideName"):
             return names.get(f"Item_Affix_{a['affixId']}_FilterOverride") or a["affixLootFilterOverrideName"]
-        return a["affixDisplayName"] or a["affixName"]
+        return names.get(f"Item_Affix_{a['affixId']}_DisplayName") or a["affixDisplayName"] or a["affixName"]
     return sorted(
         ({"id": a["affixId"],
           "name": name(a),
+          "internal_name": a["affixDisplayName"] or a["affixName"],
           "filter_name": bool(a.get("affixLootFilterOverrideName")),
           "category": categories[a["displayCategory"]] if a["displayCategory"] < len(categories) else "",
           "header": header.get(a["displayCategory"], ""),
+          "order": order.get(a["displayCategory"], [len(data["categoryHeaders"]), a["displayCategory"]]),
           "class": a["classSpecificity"],
           "special": a["specialAffixType"],
           "idol": a["rollsOn"] == 1,
@@ -303,7 +327,7 @@ def build_affixes(data: dict, lists: affixtext.PropertyLists | None = None,
           "weight": round(a["weighting"], 4),   # roll weighting: lower = rarer
           "rolls_on": sorted(a["canRollOn"]),
           "std": round(a["standardAffixEffectModifier"], 4),
-          "lines": affixtext.affix_lines(a, lists, tables or {}, words) if lists and lists.master else []}
+          "lines": _tier_lines(a, lists, tables, words)}
          for a in data["singleAffixes"] + data["multiAffixes"]),
         key=lambda a: a["id"])
 

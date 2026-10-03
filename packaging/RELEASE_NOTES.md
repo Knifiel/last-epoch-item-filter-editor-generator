@@ -3,6 +3,41 @@
 Edit Last Epoch loot filters outside the game, and generate rules for uniques, leveling, idols,
 BiS items, shattering and more - straight from your own game installation.
 
+### What's new in v0.3.1
+
+- **Affixes named and ordered like the in-game picker**: affix lists and picked affixes are
+  grouped under the game's headers and categories in its order (Core · Attributes, Offensive ·
+  Melee, ..., Defensive · Health ...), each category's affixes by name - in the rule editor, the
+  Best in slot and Idols tabs, the item tester and *Remove an affix…*. Picked affixes sit under
+  their category's subheader. Names are the picker's too, e.g. *Physical Damage* instead of
+  *Increased Physical Damage*, and idol altar affixes by their effect (*increased Mana Regen per
+  Equipped Ornate Idol*) instead of all being *Maximum Idols Equipped*; searching still finds
+  the old names, and config.toml lists naming affixes the old way keep working. The game data
+  is re-read once on the first start (a minute or two).
+- **Quick filter for affix lists** (rule editor, Best in slot): tick categories to list only
+  those (with how many each has), and sort by category or by name.
+- Idol altar affixes stop at T7 in tier tables and the item tester: T8 only rolls on equipment.
+  Variant mods (fixed mods of unique variants) show their one value instead of eight identical
+  tiers.
+- Uniques the game hides from players (Sharktooth Saw, Heirloom of Light, Egg of the Forgotten)
+  are left out of the generated unique rules and the uniques picker, as in-game; *↻ [A] rules*
+  takes them out of existing filters.
+- **One class hide rule instead of five**: *Hide items of other classes (select what classes
+  you don't want to see)*. New ticks every class but yours and switches it on; tick the ones
+  you don't want to see in the rule editor (refreshing keeps them). It frees four rule slots.
+  Existing filters: *↻ [A] rules* turns the five rules into this one, hiding what the
+  switched-on ones hid.
+- **Shatter section at the top**, right below the always-show rule and above the class hide
+  rule: a class-specific affix gives an item its class's requirement, so the shatter rules
+  for other classes' affixes never fired below the class hide rules. The shatter rules now
+  take magic and rare items only (`[shatter] rarity`) - exalted ones have the exalted rules.
+- **Restore exalted section…** (Rules tab): puts the template's exalted & legendary section back
+  into a filter - only the rules it lacks (e.g. the corrupted rules, for a filter made before
+  v0.3.0) or all of them in place of the filter's.
+- The idol section goes right before the uniques (it used to follow the shatter section).
+- Your new-filter template gets the new layout once when this version starts; existing
+  filters get it with **Reorder generated sections** (Rules tab). A new filter has it already.
+
 ### What's new in v0.3.0
 
 - **Leveling: a section per kind of gear.** Weapons, off-hands, armour and jewelry & belts
@@ -53,7 +88,7 @@ BiS items, shattering and more - straight from your own game installation.
   CORRUPTED DOUBLE T7* below the exalted rules, which stay for uncorrupted items.
 - **Class hide rules at the top**, right below the always-show rule, so other classes' items
   stay hidden from every rule below - corrupted, BiS, shatter and leveling ones included.
-- **Idol section after the shatter section**: a new idol section now goes right before the
+- **Idol section before the uniques**: a new idol section now goes right before the
   uniques instead of at the top. **Reorder generated sections** (Rules tab) moves the class
   hide rules, BiS, idol and leveling sections of an existing filter back to their places.
 - **Idols: heretical idols' Enchanted affixes** are offered on each class idol (its rule covers
@@ -67,7 +102,7 @@ BiS items, shattering and more - straight from your own game installation.
   and corrupted rules too, unless you changed those settings; the new-filter template updates
   itself (see above). Existing filters: *↻ [A] rules* gives them the Weaver brackets and moves
   the class hide rules up, *Add missing sections…* doesn't add rules to a section the filter
-  already has - copy the two corrupted rules from a new filter if you want them.
+  already has - *Restore exalted section…* (v0.3.1) adds the two corrupted rules.
 - **Add missing sections…** (Rules tab): gives a filter that didn't start from *New* - such as
   the uniques-only one `build --standalone` writes, which the editor now points out - the
   template's BiS, exalted and legendary, class hide, shatter and hide-everything rules.

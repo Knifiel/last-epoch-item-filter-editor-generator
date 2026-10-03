@@ -363,3 +363,18 @@ def test_a_class_affix_excluded_in_one_section_stays_out_of_it_only():
     armour = [a["id"] for a in plan.rule_affixes["[L] Armour 2+ build affixes 0-59"]]
     assert 563 not in armour and 380 in armour                       # the other class pick stays
     assert 603 in [a["id"] for a in plan.rule_affixes["[L] Jewelry & belts build affix 0-59"]]
+
+
+def test_toggles_match_the_affixes_own_name_and_excludes_take_either_name():
+    # the game may name an affix unlike its own name; the toggles look at the latter
+    renamed = [{**a, "name": "Burning", "internal_name": "Increased Fire Damage"} if a["name"] == "Increased Fire Damage"
+               else {**a, "name": "Life Steal", "internal_name": "Melee Health Leech"} if a["name"] == "Melee Health Leech" else a
+               for a in AFFIXES]
+    before = toggle_affixes({"damage": ["fire"], "focus": ["melee"]}, AFFIXES)
+    after = toggle_affixes({"damage": ["fire"], "focus": ["melee"]}, renamed)
+    assert {k: [a["id"] for a in v] for k, v in after.items()} == {k: [a["id"] for a in v] for k, v in before.items()}
+    data = {**DATA, "affixes": [{**a, "name": "Str", "internal_name": "Strength"} if a["id"] == 501 else a for a in DATA["affixes"]]}
+    for name in ("Strength", "Str"):
+        table = {"armour": True, "header": "", "armour_affixes": {"attributes": ["strength"], "exclude": [name]}}
+        plan = plan_leveling(parse_options(table, BASES), data)
+        assert plan.excluded["armour"] == {501} and not [w for w in plan.warnings if "exclude" in w]

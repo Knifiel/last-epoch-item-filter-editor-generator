@@ -11,13 +11,13 @@ from pathlib import Path
 
 from . import filterxml
 from .extract import DATA_VERSION, ExtractError, extract
-from .filterxml import (BaseFilter, FilterHeader, assemble, merge, read_filter, render_rule,
+from .filterxml import (BaseFilter, FilterHeader, assemble, merge, read_filter, render_rule, rule_infos,
                         write_filter)
 from .game import DATA_FOLDER, GameNotFound, find_filters_dir, find_game
 from .paths import (CACHE_DIR, CONFIG_FILE, DATA_DIR, FROZEN, OUT_DIR, TEMPLATE_FILE, USER_DIR, prepare_user_dir,
                     save_game_dir, saved_game_dir)
 from .leveling import LevelingPlan, parse_options, plan_leveling
-from .sections import RuleInfo, place
+from .sections import RuleInfo, class_hide_index, place
 from .starter import describe_template_update, sync_template
 from .report import build_report, histogram_markdown, leveling_markdown
 from .rules import ConfigError, Rule, RuleSpec, plan_affix_rules, plan_class_hide, plan_rules, read_config
@@ -195,8 +195,11 @@ def cmd_build(args) -> None:
                               description=(MARKER_RE.sub("", base.header.description) + " " + marker).strip(),
                               version=data["game_version"] or base.header.version)
         kept_names = [BaseFilter.rule_name(b) for b in result.blocks if b not in generated and b not in top]
-        # Class hide rules right below the always-show rules: they keep other classes' items out of every rule below.
-        blocks = result.blocks[:len(top)] + class_blocks + result.blocks[len(top):]
+        # Class hide rules right below the always-show rules and the shatter section: they keep other
+        # classes' items out of every rule below.
+        at = class_hide_index([(i.name, not i.conditions) for i in rule_infos(result.blocks)],
+                              {BaseFilter.rule_name(b) for b in top})
+        blocks = result.blocks[:at] + class_blocks + result.blocks[at:]
         merge_info = (f"Built from `{base_path.name}`: kept {len(kept_names)} of its rules, "
                       f"replaced {len(result.removed)}, left out {len(result.left_out)}; "
                       f"generated block starts at position {result.insert_at + len(class_blocks) + 1} from the top.")

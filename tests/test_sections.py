@@ -1,5 +1,5 @@
 from lefilter.filterdoc import new_rule
-from lefilter.sections import IDOL_PLACEMENT, doc_infos, place, reorder_generated
+from lefilter.sections import IDOL_PLACEMENT, class_hide_index, doc_infos, place, reorder_generated
 
 
 def sep(name):
@@ -14,45 +14,52 @@ def names(rules):
     return [r["name"] for r in rules]
 
 
-# The template's order: always-show, BiS, exalted & legendary (+ class hide), shatter, uniques ..., hide the rest.
-TEMPLATE = [rule("[A] ALWAYS SHOW"), sep("------ BIS ITEMS ------"), rule("BIS - Helmet"),
-            sep("------ EXALTED & LEGENDARY ------"), rule("ALL T8"), rule("[A] Hide non-Mage class items"),
-            sep("------ SHATTER AFFIXES ------"), rule("SHATTER - RARE-ROLL"),
-            sep("[A] ------- UNIQUES -------"), rule("[A] ANY UNIQUE"),
-            new_rule("HIDE EVERYTHING ELSE", type="HIDE")]
+HIDE = ["[A] Hide non-Mage class items", "[A] Hide non-Rogue class items"]
+TOP = ["[A] ALWAYS SHOW"]
+# The template's order: always-show, shatter, class hide, BiS, exalted & legendary, uniques ..., hide the rest.
+TEMPLATE = ([rule("[A] ALWAYS SHOW"), sep("------ SHATTER AFFIXES ------"), rule("SHATTER - RARE-ROLL")]
+            + [rule(n) for n in HIDE]
+            + [sep("------ BIS ITEMS ------"), rule("BIS - Helmet"), sep("------ EXALTED & LEGENDARY ------"), rule("ALL T8"),
+               sep("[A] ------- UNIQUES -------"), rule("[A] ANY UNIQUE"), new_rule("HIDE EVERYTHING ELSE", type="HIDE")])
+# v0.3.0's: shatter right before the uniques
+V030 = [TEMPLATE[0], *TEMPLATE[3:9], *TEMPLATE[1:3], *TEMPLATE[9:]]
 
 
-def test_a_new_idol_section_goes_after_shatter_before_the_uniques():
+def test_a_new_idol_section_goes_right_before_the_uniques():
     idols = [sep("[I] ------- IDOLS (auto) -------"), rule("[I] Small idol")]
-    merged, removed, at = place(TEMPLATE, doc_infos(TEMPLATE), idols, "[I] ", **IDOL_PLACEMENT)
-    assert removed == 0 and names(merged)[at - 1:at + 3] == ["SHATTER - RARE-ROLL", "[I] ------- IDOLS (auto) -------",
-                                                             "[I] Small idol", "[A] ------- UNIQUES -------"]
-    no_shatter = [r for r in TEMPLATE if "SHATTER" not in r["name"]]
-    merged, _, at = place(no_shatter, doc_infos(no_shatter), idols, "[I] ", **IDOL_PLACEMENT)
-    assert names(merged)[at + 2] == "[A] ------- UNIQUES -------"            # no shatter: just before the uniques
+    for base in (TEMPLATE, V030):
+        merged, removed, at = place(base, doc_infos(base), idols, "[I] ", **IDOL_PLACEMENT)
+        assert removed == 0 and names(merged)[at + 2] == "[A] ------- UNIQUES -------"
     bare = [rule("Mine")]
     assert names(place(bare, doc_infos(bare), idols, "[I] ", **IDOL_PLACEMENT)[0])[0] == "[I] ------- IDOLS (auto) -------"
 
 
+def test_class_hide_rules_go_below_the_always_show_rules_and_a_shatter_section_right_after_them():
+    entries = lambda rules: [(r["name"], not r["conditions"]) for r in rules if r["name"] not in HIDE]
+    assert class_hide_index(entries(TEMPLATE), TOP) == 3                 # after the shatter section
+    assert class_hide_index(entries(V030), TOP) == 1                     # shatter further down: right below always-show
+    assert class_hide_index(entries(TEMPLATE[1:]), TOP) == 2             # no always-show rule: after shatter at the top
+
+
 def test_reorder_moves_generated_sections_back_and_leaves_the_rest():
-    rules = ([sep("[I] ------- IDOLS (auto) -------"), rule("[I] Small idol")] + TEMPLATE[:-1]
-             + [rule("[L] Helmet 0-59"), rule("Mine at the bottom")] + TEMPLATE[-1:])
-    rules.insert(3, rule("[L] Sword 0-9"))                         # a stray leveling rule up top
-    out, moved = reorder_generated(rules, {"bis": "BIS - ", "idols": "[I] ", "leveling": "[L] "})
+    rules = ([sep("[I] ------- IDOLS (auto) -------"), rule("[I] Small idol")] + V030[:-1]
+             + [rule("[L] Helmet 0-59"), rule("Mine at the bottom")] + V030[-1:])
+    rules.insert(4, rule("[L] Sword 0-9"))                         # a stray leveling rule up top
+    out, moved = reorder_generated(rules, {"bis": "BIS - ", "idols": "[I] ", "leveling": "[L] "}, TOP, HIDE)
     n = names(out)
-    assert moved == ["idol section", "leveling section"]
-    assert n.index("[I] Small idol") == n.index("SHATTER - RARE-ROLL") + 2
+    assert moved == ["idol section", "leveling section", "shatter section"]
+    assert n[:5] == ["[A] ALWAYS SHOW", "------ SHATTER AFFIXES ------", "SHATTER - RARE-ROLL", *HIDE]
+    assert n.index("[I] Small idol") == n.index("[A] ------- UNIQUES -------") - 1
     assert n[-4:] == ["Mine at the bottom", "[L] Sword 0-9", "[L] Helmet 0-59", "HIDE EVERYTHING ELSE"]
-    assert reorder_generated(out, {"bis": "BIS - ", "idols": "[I] ", "leveling": "[L] "}) == (out, [])
+    assert reorder_generated(out, {"bis": "BIS - ", "idols": "[I] ", "leveling": "[L] "}, TOP, HIDE) == (out, [])
     custom = [rule("[I] Small idol"), rule("Mine")]                 # no spot for idols: left where they are
     assert reorder_generated(custom, {"idols": "[I] "}) == (custom, [])
 
 
-def test_reorder_puts_class_hide_rules_right_below_the_always_show_rules():
-    hide = ["[A] Hide non-Mage class non-legendary items", "[A] Hide non-Rogue class non-legendary items"]
-    rules = TEMPLATE[:5] + [rule(n) for n in hide] + TEMPLATE[5:]   # where v0.2.0 put them: after the exalted rules
-    out, moved = reorder_generated(rules, {}, top_names=["[A] ALWAYS SHOW"], hide_names=hide)
-    assert moved == ["class hide rules"] and names(out)[:3] == ["[A] ALWAYS SHOW", *hide]
-    assert [r for r in out if r["name"] not in hide] == [r for r in rules if r["name"] not in hide]
-    assert reorder_generated(out, {}, top_names=["[A] ALWAYS SHOW"], hide_names=hide) == (out, [])
-    assert names(reorder_generated(rules[1:], {}, top_names=["[A] ALWAYS SHOW"], hide_names=hide)[0])[:2] == hide
+def test_reorder_puts_class_hide_rules_below_the_shatter_section():
+    old = [V030[0]] + [r for r in V030[1:] if r["name"] not in HIDE]
+    at = names(old).index("------ SHATTER AFFIXES ------")
+    old = old[:at] + [rule(n) for n in HIDE] + old[at:]             # v0.2.0: class hide right above the shatter section
+    out, moved = reorder_generated(old, {}, TOP, HIDE)
+    assert moved == ["shatter section", "class hide rules"] and names(out) == names(TEMPLATE)
+    assert reorder_generated(out, {}, TOP, HIDE) == (out, [])

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from lefilter.rules import (UPDATED_EXALTED_RULES, UPDATED_GROUP_RULES, ConfigError, RuleSpec, categorize, plan_rules,
+from lefilter.rules import (UPDATED_CLASS_HIDE_NAME, UPDATED_EXALTED_RULES, UPDATED_GROUP_RULES, ConfigError, RuleSpec, categorize, plan_rules,
                             released_defaults, upgrade_config)
 
 THRESHOLDS = {"uncommon": 0.25, "rare": 0.5, "very_rare": 0.75, "extremely_rare": 0.95}
@@ -118,6 +118,8 @@ def test_weaver_brackets_and_old_defaults_upgrade():
     back = released_defaults(raw)                                  # what earlier versions generated from it
     assert back["group"][[g["name"] for g in raw["group"]].index("WEAVER")]["rules"] == old
     assert back["exalted_rule"] == UPDATED_EXALTED_RULES[0] and back["starter"]["corrupted"] is False
+    assert raw["class_hide"]["name"] == UPDATED_CLASS_HIDE_NAME[1] and back["class_hide"]["name"] == UPDATED_CLASS_HIDE_NAME[0]
+    assert upgrade_config(released_defaults(raw))["class_hide"]["name"] == UPDATED_CLASS_HIDE_NAME[1]
 
 
 def test_set_groups_use_set_rarity_and_headers_become_separators():
@@ -185,15 +187,19 @@ def test_affix_rule_unknown_category_lists_known_ones():
         plan_affix_rules(cfg, AFFIXES)
 
 
-def test_class_hide_rules_one_per_class_disabled_by_default():
+def test_class_hide_is_one_rule_set_up_for_the_classes_played():
     from lefilter.rules import plan_class_hide
-    rules = plan_class_hide({"filter": {"rule_prefix": "[A] "}, "class_hide": {"add": True, "enabled_for": ["Sentinel"]}})
-    assert [r.name for r in rules] == [f"[A] Hide non-{c} class non-legendary items"
-                                       for c in ("Primalist", "Mage", "Sentinel", "Acolyte", "Rogue")]
-    sentinel = rules[2]
-    assert sentinel.classes == ["Primalist", "Mage", "Acolyte", "Rogue"] and sentinel.rarity == "NORMAL MAGIC RARE"
-    assert sentinel.spec.action == "hide" and sentinel.spec.enabled
-    assert not any(r.spec.enabled for r in rules if r is not sentinel)
+    others = ["Primalist", "Mage", "Acolyte", "Rogue"]
+    cfg = {"filter": {"rule_prefix": "[A] "}, "class_hide": {"add": True, "enabled_for": ["Sentinel"]}}
+    [rule] = plan_class_hide(cfg)
+    assert rule.name == "[A] Hide items of other classes (select what classes you don't want to see)"
+    assert rule.spec.action == "hide" and rule.spec.enabled and rule.classes == others and rule.rarity == "NORMAL MAGIC RARE"
+    [off] = plan_class_hide({**cfg, "class_hide": {"add": True}})
+    assert not off.spec.enabled and off.classes == [*others[:2], "Sentinel", *others[2:]]   # all five: none would hide anything
+    renamed = {**cfg, "class_hide": {"add": True, "name": "No {class} stuff"}}
+    assert [r.name for r in plan_class_hide(renamed)] == [rule.name]                  # a per-class name: the default one
+    assert [r.name for r in plan_class_hide(renamed, per_class=True)] == [f"[A] No {c} stuff" for c in (
+        "Primalist", "Mage", "Sentinel", "Acolyte", "Rogue")]                         # what earlier versions made of it
     assert plan_class_hide({}) == []
 
 
@@ -203,3 +209,11 @@ def test_class_hide_rejects_bad_options():
         plan_class_hide({"class_hide": {"add": True, "enabled_for": ["Necromancer"]}})
     with pytest.raises(ConfigError, match="unknown key"):
         plan_class_hide({"class_hide": {"add": True, "classes": []}})
+    with pytest.raises(ConfigError, match="every class"):
+        plan_class_hide({"class_hide": {"add": True, "enabled_for": ["Primalist", "Mage", "Sentinel", "Acolyte", "Rogue"]}})
+
+
+def test_uniques_hidden_from_players_are_left_out():
+    hidden = {**unique(9, "Sharktooth Saw", random=False), "hidden": True}
+    plan = plan_rules(config({"name": "SPECIAL", "categories": ["special"], "rules": [{}]}), UNIQUES + [hidden])
+    assert [u["name"] for u in plan.members["SPECIAL"]] == ["Boss Drop"] and 9 not in [u["id"] for u in plan.uncovered]

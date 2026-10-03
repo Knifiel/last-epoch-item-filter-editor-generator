@@ -135,6 +135,9 @@ main { flex: 1; min-height: 0; }
 .picker .opt .meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .picker .grp { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-size: 11px; padding: 2px 8px; text-transform: uppercase; }
 .selected-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.selected-list .chip-group { flex-basis: 100%; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em;
+  margin-top: 6px; padding-bottom: 1px; border-bottom: 1px solid #221d25; }
+.selected-list .chip-group:first-child { margin-top: 0; }
 .selected-list .chip { cursor: default; }
 .selected-list .chip button { border: none; background: none; padding: 0 0 0 6px; color: var(--muted); }
 .bases { columns: 2; column-gap: 16px; }
@@ -277,6 +280,8 @@ body { max-width: 2560px; margin: 0 auto; width: 100%; }
 .uniq-types .chips.compact { gap: 3px; margin: 2px 0; align-items: center; }
 .uniq-types .chips.compact .chip { font-size: 11px; padding: 1px 7px; }
 .uniq-types .cat { font-size: 10px; text-transform: uppercase; min-width: 112px; }
+.affix-cats { margin: 4px 0 6px; }
+.affix-cats > .row { margin-bottom: 2px; }
 .uniq-list { display: flex; flex-direction: column; gap: 2px; margin: 4px 0; }
 .uniq-picked { border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; margin: 0; }
 .uniq-picked > summary { display: flex; align-items: center; gap: 6px; }
@@ -294,3 +299,4 @@ body { max-width: 2560px; margin: 0 auto; width: 100%; }
 .class-affixes label.excluded { opacity: .6; }
 .remove-affix-list { max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }
 .remove-affix-list .affix-row { display: flex; gap: 6px; align-items: center; text-align: left; }
+.remove-affix-list .grp { color: var(--muted); font-size: 11px; text-transform: uppercase; margin-top: 6px; }

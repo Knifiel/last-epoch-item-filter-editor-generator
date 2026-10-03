@@ -153,6 +153,10 @@ def test_a_class_lists_its_bases_when_none_are_ticked_and_reads_back():
             new_rule("[A] Hide non-Sentinel class non-legendary items", type="HIDE", enabled=False)]
     plain = bis.plan_bis(bis.parse_options({"slots": {"helmet": {"affixes": [25]}}}), DATA).rules
     assert bis.read_picks(hide + plain, DATA)["character_class"] == "Mage"   # from the class hide rule that's on
+    one = new_rule("[A] Hide items of other classes", type="HIDE",
+                   conditions=[{"type": "ClassCondition", "classes": ["Primalist", "Sentinel", "Acolyte", "Rogue"]}])
+    assert bis.read_picks([one] + plain, DATA)["character_class"] == "Mage"  # the class it leaves out
+    assert bis.read_picks([{**one, "enabled": False}] + plain, DATA)["character_class"] == ""
 
 
 def test_a_class_without_bases_of_a_type_makes_no_rule_for_it():

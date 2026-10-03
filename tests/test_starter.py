@@ -46,6 +46,12 @@ CONFIG = {
     "build_slots": {"add": True, "name": "EDIT FOR YOUR BUILD - {section}"},
 }
 CTX = Context({**DATA, "bases": []})
+HIDE = "[A] Hide items of other classes (select what classes you don't want to see)"
+
+
+def hidden(rule):
+    """The classes a class hide rule ticks."""
+    return next(c for c in rule["conditions"] if c["type"] == "ClassCondition")["classes"]
 
 
 def test_exalted_rules_count_gear_affixes_by_tier():
@@ -81,20 +87,18 @@ def test_starter_parts_in_order_with_class_enabled():
     doc = build_starter(CONFIG, DATA, {"name": "Sentinel", "character_class": "Sentinel",
                                        "parts": ["personal", "exalted", "legendary", "class_hide", "uniques", "hide_rest"]})
     names = [(r["name"], r["enabled"]) for r in doc["rules"]]
-    hides = names[1:6]                     # right below the always-show rule: before every other rule
-    assert [n for n, _ in hides] == [f"[A] Hide non-{c} class non-legendary items" for c in CLASSES]
-    assert hides[2] == ("[A] Hide non-Sentinel class non-legendary items", True)
-    assert names[:1] + names[6:12] == [("[A] ALWAYS SHOW - PERSONAL", True), ("------ EXALTED & LEGENDARY ------", False),
-                                        ("DOUBLE T7", True), ("T7 + T6", True), ("SINGLE T7", True),
-                                        ("SHOW ALL CORRUPTED ITEMS", True), ("LEGENDARY", True)]
-    corrupted = doc["rules"][10]["conditions"]
+    assert names[1] == (HIDE, True)        # one rule, right below the always-show rule: before every other rule
+    assert hidden(doc["rules"][1]) == ["Primalist", "Mage", "Acolyte", "Rogue"]   # every class but the chosen one
+    assert names[:1] + names[2:8] == [("[A] ALWAYS SHOW - PERSONAL", True), ("------ EXALTED & LEGENDARY ------", False),
+                                       ("DOUBLE T7", True), ("T7 + T6", True), ("SINGLE T7", True),
+                                       ("SHOW ALL CORRUPTED ITEMS", True), ("LEGENDARY", True)]
+    corrupted = doc["rules"][6]["conditions"]
     assert {c["type"]: c for c in corrupted}["CorruptionCondition"]["corruption"] == "OnlyCorrupted"
     assert {c["type"]: c for c in corrupted}["RarityCondition"]["rarity"] == ["NORMAL", "MAGIC", "RARE", "EXALTED"]
     off = build_starter({**CONFIG, "starter": {**CONFIG["starter"], "corrupted": False}}, DATA, {"parts": ["exalted"]})
     assert "SHOW ALL CORRUPTED ITEMS" not in [r["name"] for r in off["rules"]]
     recoloured = build_starter({**CONFIG, "starter": {"corrupted": {"color": 4}}}, DATA, {"parts": ["exalted"]})
     assert {r["name"]: r["color"] for r in recoloured["rules"]}["SHOW ALL CORRUPTED ITEMS"] == 4
-    assert sum(on for _, on in hides) == 1
     assert names[-1] == ("HIDE REST", True) and doc["rules"][-1]["type"] == "HIDE" and not doc["rules"][-1]["conditions"]
     assert doc["header"]["name"] == "Sentinel" and doc["header"]["version"] == "1.5"
 
@@ -109,7 +113,9 @@ def test_starter_leveling_goes_above_the_bottom_hide_rule():
 def test_refresh_keeps_toggles_and_filled_build_slots():
     first = build_starter(CONFIG, DATA, {"parts": ["class_hide", "uniques", "hide_rest"]})["rules"]
     by = {r["name"]: r for r in first}
-    by["[A] Hide non-Mage class non-legendary items"]["enabled"] = True
+    assert not by[HIDE]["enabled"] and hidden(by[HIDE]) == list(CLASSES)   # no class: off, all five ticked
+    by[HIDE]["enabled"] = True
+    hidden(by[HIDE])[:] = ["Sentinel", "Rogue"]                            # the user's pick
     slot = by["[A] EDIT FOR YOUR BUILD - UNIQUES"]
     slot["conditions"][1]["uniques"] = [{"id": 1, "rolls": []}]
     slot["enabled"] = True
@@ -118,7 +124,7 @@ def test_refresh_keeps_toggles_and_filled_build_slots():
     names = [r["name"] for r in res["rules"]]
     assert "[A] NEW GROUP - all" in names and names[-1] == "HIDE REST"
     again = {r["name"]: r for r in res["rules"]}
-    assert again["[A] Hide non-Mage class non-legendary items"]["enabled"]
+    assert again[HIDE]["enabled"] and hidden(again[HIDE]) == ["Sentinel", "Rogue"]
     assert again["[A] EDIT FOR YOUR BUILD - UNIQUES"]["conditions"][1]["uniques"] == [{"id": 1, "rolls": []}]
     assert refresh_generated(config, DATA, res["rules"])["rules"] == res["rules"]
 
@@ -128,8 +134,7 @@ def test_refresh_into_a_filter_without_generated_rules():
              new_rule("bottom", type="HIDE")]
     names = [r["name"] for r in refresh_generated(CONFIG, DATA, rules)["rules"]]
     assert names[0] == "[A] ALWAYS SHOW - PERSONAL"
-    assert names[1:7] == [f"[A] Hide non-{c} class non-legendary items"
-                          for c in ("Primalist", "Mage", "Sentinel", "Acolyte", "Rogue")] + ["mine"]
+    assert names[1:3] == [HIDE, "mine"]
     sep = names.index("------ UNIQUE ITEMS ------")
     assert names[sep + 1] == "[A] --- UNIQUES ---" and names[-2:] == ["legendary", "bottom"]
 
@@ -191,7 +196,7 @@ def test_bis_rules_per_slot_with_build_affixes_and_no_bases():
 def test_shatter_rules():
     rules = plan_shatter(FULL_CONFIG, FULL, "Sentinel")
     general = rules[1]
-    assert general.affix_ids == [36, 719] and general.affix_tier is None and general.rarity == "MAGIC RARE EXALTED"
+    assert general.affix_ids == [36, 719] and general.affix_tier is None and general.rarity == "MAGIC RARE"   # exalted: the exalted rules
     assert not {t for t in general.item_types if t.startswith("IDOL")}       # idols can't be shattered
     by_name = {r.name: r for r in rules}
     assert by_name["SHATTER - SENTINEL AFFIXES"].spec.enabled and by_name["SHATTER - SENTINEL AFFIXES"].affix_ids == [563]
@@ -211,7 +216,7 @@ def test_new_from_template_applies_class_and_build(tmp_path):
     template = make_template(FULL_CONFIG, FULL)
     bis = [r for r in template["rules"] if r["name"].startswith("BIS - ")]
     assert bis and not any(r["enabled"] for r in bis)   # no build yet: off
-    assert not any(r["enabled"] for r in template["rules"] if r["name"].startswith(("[A] Hide non-", "SHATTER - ")) and "RARE-ROLL" not in r["name"])
+    assert not any(r["enabled"] for r in template["rules"] if r["name"].startswith(("[A] Hide", "SHATTER - ")) and "RARE-ROLL" not in r["name"])
     next(r for r in template["rules"] if r["name"] == "ALL T8")["color"] = 3   # template edits carry over
     doc = new_from_template(FULL_CONFIG, FULL, template, {"name": "Sentinel", "character_class": "Sentinel",
                                                           "leveling": BUILD})
@@ -220,8 +225,7 @@ def test_new_from_template_applies_class_and_build(tmp_path):
     assert doc["header"]["icon"] == 5 and template["header"]["icon"] == 0      # Sentinel's filter icon
     picked = new_from_template(FULL_CONFIG, FULL, template, {"character_class": "Sentinel", "icon": 20, "icon_color": 7})
     assert (picked["header"]["icon"], picked["header"]["icon_color"]) == (20, 7)
-    assert by["[A] Hide non-Sentinel class non-legendary items"]["enabled"]
-    assert not by["[A] Hide non-Mage class non-legendary items"]["enabled"]
+    assert by[HIDE]["enabled"] and hidden(by[HIDE]) == ["Primalist", "Mage", "Acolyte", "Rogue"]
     assert by["SHATTER - SENTINEL AFFIXES"]["enabled"] and not by["SHATTER - ROGUE AFFIXES"]["enabled"]
     names = [r["name"] for r in doc["rules"]]
     # a blank slate: the BiS rules stay the template's generic, switched-off ones
@@ -235,7 +239,7 @@ def test_add_missing_sections_completes_a_uniques_only_filter():
     template = make_template(FULL_CONFIG, FULL)
     # what `build --standalone` writes: the unique groups only, then a leveling rule added on top
     uniques = refresh_generated(FULL_CONFIG, FULL, [])["rules"]
-    uniques = [r for r in uniques if not r["name"].startswith(("[A] ALWAYS SHOW", "[A] Hide non-"))]
+    uniques = [r for r in uniques if not r["name"].startswith(("[A] ALWAYS SHOW", "[A] Hide"))]
     leveling = parse_rule_blocks([render_rule(r) for r in plan_rules(FULL_CONFIG, FULL["uniques"]).rules[:1]])[0]
     leveling["name"] = "[L] Helmet 0-59"
     rules = uniques + [leveling]
@@ -243,12 +247,11 @@ def test_add_missing_sections_completes_a_uniques_only_filter():
     names = [r["name"] for r in res["rules"]]
     assert names[0] == "[A] ALWAYS SHOW - PERSONAL"
     assert names.index("------ BIS ITEMS (pick the bases) ------") < names.index("ALL T8") < names.index("[A] --- UNIQUES ---")
-    assert names.index("[A] Hide non-Rogue class non-legendary items") < names.index("SHATTER - RARE-ROLL AFFIXES")
+    assert names[1] == "------ SHATTER AFFIXES ------" and names[8] == HIDE
     assert names[-2:] == ["[L] Helmet 0-59", "HIDE REST"]      # the catch-all below the leveling section
     by = {r["name"]: r for r in res["rules"]}
     assert not by["BIS - Helmet (pick bases)"]["enabled"] and by["SHATTER - SENTINEL AFFIXES"]["enabled"]
-    assert by["[A] Hide non-Sentinel class non-legendary items"]["enabled"]
-    assert not by["[A] Hide non-Mage class non-legendary items"]["enabled"]
+    assert by[HIDE]["enabled"] and hidden(by[HIDE]) == ["Primalist", "Mage", "Acolyte", "Rogue"]
     assert "HIDE REST" in res["added"] and "[L] Helmet 0-59" not in res["added"]
     again = add_missing_sections(FULL_CONFIG, FULL, template, res["rules"], {"character_class": "Sentinel"})
     assert again["added"] == [] and [r["name"] for r in again["rules"]] == names   # nothing left to add
@@ -323,12 +326,12 @@ def test_first_update_of_an_unstamped_template_keeps_removals(tmp_path, monkeypa
 
 def test_add_missing_sections_uses_the_configured_class_hide_name():
     from lefilter.starter import add_missing_sections
-    config = {**FULL_CONFIG, "class_hide": {"add": True, "name": "No {class} stuff"}}
+    config = {**FULL_CONFIG, "class_hide": {"add": True, "name": "Not my classes"}}
     template = make_template(config, FULL)
-    uniques = [r for r in refresh_generated(config, FULL, [])["rules"] if "stuff" not in r["name"]]
+    uniques = [r for r in refresh_generated(config, FULL, [])["rules"] if "Not my" not in r["name"]]
     res = add_missing_sections(config, FULL, template, uniques, {"character_class": "Rogue"})
     by = {r["name"]: r for r in res["rules"]}
-    assert by["[A] No Rogue stuff"]["enabled"] and not by["[A] No Mage stuff"]["enabled"]
+    assert by["[A] Not my classes"]["enabled"] and hidden(by["[A] Not my classes"]) == ["Primalist", "Mage", "Sentinel", "Acolyte"]
 
 
 def test_a_filled_in_legacy_placeholder_survives_the_first_update(tmp_path, monkeypatch):
@@ -373,9 +376,10 @@ def test_first_update_of_a_v020_template_gets_this_versions_defaults(tmp_path, m
               "group": FULL_CONFIG["group"] + [{"name": "WEAVER", "categories": ["weaver"], "rules": new}]}
     data = {**FULL, "uniques": FULL["uniques"] + [{**unique(9, "Woven"), "weavers_will": True}]}
     path = tmp_path / "templates" / "New filter.xml"
-    doc = make_template(released_defaults(config), data)   # what v0.2.0 wrote: two Weaver brackets, no corrupted rules...
-    hides = [r for r in doc["rules"] if r["name"].startswith("[A] Hide non-")]
-    rest = [r for r in doc["rules"] if r not in hides]
+    doc = make_template(released_defaults(config), data)   # what v0.2.0 wrote: two Weaver brackets, no corrupted rules,
+    legacy = starter.legacy_template_rules(config, data)   # a hide rule per class...
+    hides = [legacy[n] for n in starter.old_class_hide_names(config)]
+    rest = [r for r in doc["rules"] if r["name"] != HIDE]
     at = next(i for i, r in enumerate(rest) if "SHATTER" in r["name"])
     doc["rules"] = rest[:at] + hides + rest[at:]           # ...and the class hide rules above the shatter section
     by = {r["name"]: r for r in doc["rules"]}
@@ -387,7 +391,77 @@ def test_first_update_of_a_v020_template_gets_this_versions_defaults(tmp_path, m
     names = [r["name"] for r in parse_filter(path.read_bytes().decode("utf-8-sig"))["rules"]]
     assert [n for n in names if n.startswith("[A] WEAVER")] == ["[A] WEAVER - 19+ WW", "[A] WEAVER - 15-18 WW",
                                                                  "[A] WEAVER - 0-14 WW", "[A] WEAVER - 0-16 WW"]
-    assert res["dropped"] == ["[A] WEAVER - 17+ WW"]
+    assert set(res["dropped"]) == {"[A] WEAVER - 17+ WW", *[r["name"] for r in hides]}
     assert names.index("EXALTED - CORRUPTED DOUBLE T7") == names.index("EXALTED - SINGLE T7") + 1
     assert names.index("SHOW ALL CORRUPTED ITEMS") == names.index("EXALTED - CORRUPTED DOUBLE T7") + 1
-    assert [n for n in names[1:6]] == [f"[A] Hide non-{c} class non-legendary items" for c in CLASSES]
+    assert names[1] == "------ SHATTER AFFIXES ------"                       # moved to the top...
+    assert names[8] == HIDE and not [n for n in names if "Hide non-" in n]   # ...the one class hide rule under it
+
+
+def test_the_template_update_moves_the_shatter_section_to_the_top_once(tmp_path, monkeypatch):
+    from lefilter import starter
+    from lefilter.filterdoc import parse_filter
+    names = lambda: [r["name"] for r in parse_filter(path.read_bytes().decode("utf-8-sig"))["rules"]]
+    path = tmp_path / "templates" / "New filter.xml"
+    doc = make_template(FULL_CONFIG, FULL)
+    shatter = [r for r in doc["rules"] if "SHATTER" in r["name"]]
+    rest = [r for r in doc["rules"] if r not in shatter]
+    at = [r["name"] for r in rest].index("[A] --- UNIQUES ---")
+    low = {**doc, "rules": rest[:at] + shatter + rest[at:]}          # v0.3.0's layout: shatter right before the uniques
+    monkeypatch.setattr(starter, "__version__", "0.3.0")
+    starter.write_generated_template(path, low)
+    monkeypatch.setattr(starter, "__version__", "0.3.1")
+    starter.sync_template(path, FULL_CONFIG, FULL)
+    assert names()[1] == "------ SHATTER AFFIXES ------" and names()[8] == HIDE
+    starter.write_template(path, low, "0.3.1")                         # the user moves it down again...
+    monkeypatch.setattr(starter, "__version__", "0.3.2")
+    starter.sync_template(path, FULL_CONFIG, FULL)
+    assert names().index("SHATTER - RARE-ROLL AFFIXES") == names().index("[A] --- UNIQUES ---") - 6   # ...and it stays
+    assert names()[1] == HIDE
+
+
+def test_refresh_turns_the_old_per_class_hide_rules_into_one():
+    from lefilter.rules import plan_class_hide
+    old_config = {**CONFIG, "class_hide": {"add": True, "name": "Hide non-{class} class non-legendary items", "enabled_for": ["Mage"]}}
+    old = parse_rule_blocks([render_rule(r) for r in plan_class_hide(old_config, per_class=True)])
+    res = refresh_generated(CONFIG, DATA, old + [new_rule("mine")])
+    by = {r["name"]: r for r in res["rules"]}
+    assert not [n for n in by if "Hide non-" in n]
+    assert by[HIDE]["enabled"] and hidden(by[HIDE]) == ["Primalist", "Sentinel", "Acolyte", "Rogue"]   # what "non-Mage" hid
+    none_on = refresh_generated(CONFIG, DATA, [{**r, "enabled": False} for r in old])["rules"]
+    one = next(r for r in none_on if r["name"] == HIDE)
+    assert not one["enabled"] and hidden(one) == list(CLASSES)
+
+
+def test_restore_the_exalted_section_from_the_template():
+    from lefilter.starter import restore_section
+    template = make_template(FULL_CONFIG, FULL)
+    header = "------ EXALTED & LEGENDARY ------"
+    names = [r["name"] for r in template["rules"]]
+    start = names.index(header)
+    section = names[start:names.index("[A] --- UNIQUES ---")]
+    assert section[-3:] == ["SINGLE T7", "SHOW ALL CORRUPTED ITEMS", "LEGENDARY"]
+    # a filter from before the corrupted rules, with a rule of the user's in the section and a recoloured one
+    old = [dict(r) for r in template["rules"] if r["name"] != "SHOW ALL CORRUPTED ITEMS"]
+    mine = new_rule("My exalted thing", conditions=[{"type": "RarityCondition", "rarity": ["EXALTED"]}])
+    old.insert([r["name"] for r in old].index("LEGENDARY"), mine)
+    next(r for r in old if r["name"] == "ALL T8")["color"] = 3
+    res = restore_section(old, template, header)
+    assert res["found"] and not res["matches"]
+    added = [r["name"] for r in res["add"]["rules"]]
+    assert res["add"]["added"] == ["SHOW ALL CORRUPTED ITEMS"] and res["add"]["removed"] == []
+    assert added[added.index("SHOW ALL CORRUPTED ITEMS") - 1] == section[-3]       # after the rule it follows
+    assert "My exalted thing" in added and next(r for r in res["add"]["rules"] if r["name"] == "ALL T8")["color"] == 3
+    replaced = res["replace"]["rules"]
+    assert [r["name"] for r in replaced][start:start + len(section)] == section and "My exalted thing" not in [r["name"] for r in replaced]
+    assert "My exalted thing" in res["replace"]["removed"] and next(r for r in replaced if r["name"] == "ALL T8")["color"] != 3
+    assert restore_section(replaced, template, header)["matches"]
+    # no exalted section at all: the whole section after the BiS one
+    bare = [r for r in template["rules"] if r["name"] not in section]
+    got = restore_section(bare, template, header)
+    out = [r["name"] for r in got["add"]["rules"]]
+    assert not got["found"] and got["add"]["added"] == section
+    bis_end = max(i for i, n in enumerate(out) if n.startswith("BIS - "))
+    assert out.index(header) == bis_end + 1 and out[bis_end + 1:bis_end + 1 + len(section)] == section
+    with pytest.raises(ConfigError):
+        restore_section(bare, {"rules": bare}, header)

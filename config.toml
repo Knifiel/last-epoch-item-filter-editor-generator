@@ -100,9 +100,9 @@ emphasized = true
 
 # --- new-filter template -------------------------------------------------------------
 # templates/New filter.xml is what the editor's "New" starts from (and `build`'s base). It is
-# generated from these parts, top to bottom: the [[affix_rule]]s, the [class_hide] rules, the
-# BiS section, the exalted rules plus a show-all-corrupted and a show-all-legendary rule under
-# one header, the shatter section, the unique / set groups, and a bottom rule hiding everything else (it
+# generated from these parts, top to bottom: the [[affix_rule]]s, the shatter section, the
+# [class_hide] rule, the BiS section, the exalted rules plus a show-all-corrupted and a
+# show-all-legendary rule under one header, the unique / set groups, and a bottom rule hiding everything else (it
 # never hides shards, runes, glyphs or keys: the game only applies rules made of non-equipment
 # conditions to those). Edit the template in the editor; "Rebuild template" regenerates it
 # from here. BiS / exalted / corrupted / legendary / shatter / hide rules get no rule_prefix:
@@ -130,7 +130,9 @@ emphasized = true
 beam_size = "LARGEST"
 beam_color = 12
 
-# Shatter section: gear only (idols can't be shattered), magic / rare / exalted. One rule for
+# Shatter section, at the top (above the class hide rules: a class-specific affix gives an item
+# its class's requirement, so the other classes' rules could never fire below them): magic and
+# rare gear only (idols can't be shattered; exalted items have the exalted rules). One rule for
 # non-class affixes that rarely roll (roll weighting <= max_weight: Hybrid Health 0.1, the
 # "X and minion X penetration" ones 0.15; `include` adds more by name) at general_tier+, and
 # one per class for its class-specific affixes at class_tier+ (the chosen class's one on).
@@ -140,6 +142,7 @@ max_weight = 0.15
 include = []
 general_tier = 1
 class_tier = 3
+rarity = ["MAGIC", "RARE"]   # exalted items have the exalted rules
 color = 16
 
 # Generic exalted rules: items with `min` ordinary gear affixes of at least tier `tier`
@@ -188,18 +191,17 @@ corrupted = true
 color = 11
 emphasized = true
 
-# --- class item hide rules -----------------------------------------------------------
-# One hide rule per class for class-specific items only the OTHER four classes can use,
-# e.g. "[A] Hide non-Sentinel class non-legendary items". Placed right below the always-show
-# affix rules at the top, so they keep those items out of every rule below (BiS, corrupted,
-# shatter, leveling ...). All start disabled: in a build's copy of the template, enable the
-# one for its class.
+# --- class item hide rule -------------------------------------------------------------
+# One rule hiding the class-specific items of the classes it ticks (the ones you don't want to
+# see). Placed right below the always-show affix rules and the shatter section at the top, so it
+# keeps those items out of every rule below (BiS, corrupted, leveling ...). New ticks every class
+# but the one you pick and switches it on; in the template it's off with all five ticked.
 
 [class_hide]
 add = true
-name = "Hide non-{class} class non-legendary items"   # rule_prefix goes in front
+name = "Hide items of other classes (select what classes you don't want to see)"   # rule_prefix goes in front
 rarity = ["NORMAL", "MAGIC", "RARE"]
-enabled_for = []          # classes whose rule starts enabled, e.g. ["Sentinel"]
+enabled_for = []          # the classes you play, e.g. ["Sentinel"]: the rule starts on, ticking every other class
 
 # --- any LP-capable unique with 3+ LP, regardless of group -------------------------
 

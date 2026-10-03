@@ -35,6 +35,12 @@ function put(el, ...kids) {
   return el;
 }
 
+/** Replace el's children, skipping null / false ones like h() and put() (replaceChildren would print "null"). */
+function fill(el, ...kids) {
+  el.replaceChildren();
+  return put(el, ...kids);
+}
+
 const store = {
   get(k, dflt) { try { const v = localStorage.getItem(k); return v == null ? dflt : JSON.parse(v); } catch { return dflt; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
@@ -161,6 +167,66 @@ function indexMeta(meta) {
 }
 const typeName = (t) => M.base.get(t)?.name || t;
 const affixName = (id) => M.affix.get(id)?.name || `affix ${id}`;
+/** The highest tier an affix rolls (T8 only on equipment: idol altar affixes stop at T7); 8 without tier data. */
+const affixMaxTier = (id) => Math.max(0, ...(M.affix.get(id)?.lines || []).map((l) => l.tiers.length)) || 8;
+/** An affix's group in the in-game picker: "Offensive · Damage Type". */
+const affixGroup = (a) => (a ? `${catName(a.header)} · ${catName(a.category)}` : "Not in this game version");
+
+/** Affixes (or ids) the in-game picker's way: its headers and categories in the game's order (data from
+ *  before that order was extracted: by their names), a category's affixes by name; unknown ids last. */
+function compareAffixes(x, y) {
+  const a = typeof x === "number" ? M.affix.get(x) : x, b = typeof y === "number" ? M.affix.get(y) : y;
+  if (!a || !b) return (!a) - (!b) || (a || b ? 0 : x - y);
+  const [ah, ac] = a.order || [], [bh, bc] = b.order || [];
+  const byOrder = ah != null && bh != null ? ah - bh || ac - bc : affixGroup(a).localeCompare(affixGroup(b));
+  return byOrder || a.name.localeCompare(b.name);
+}
+
+/** An affix list's quick filter: { cats: picker groups shown (none = all), sort: "category" | "name" }. */
+const newAffixFilter = () => ({ cats: new Set(), sort: "category" });
+const AFFIX_PICKER = new WeakMap();   // per affix condition
+
+/** Quick filter bar for an affix list: the in-game picker's categories as chips under their headers, with how
+ *  many of `affixes` each has (several can be on; none = all), and the list's order - by category or by name.
+ *  `all` (default: affixes) gives the categories; one with nothing left shows while it's ticked, so it can be
+ *  unticked. redraw() redraws the list; affixShownBy(f) applies the filter to it. */
+function affixFilterBar(f, affixes, redraw, all = affixes) {
+  const box = h("div", { class: "uniq-types affix-cats" });
+  const draw = () => {
+    const counts = new Map(), heads = new Map(), seen = new Set();
+    for (const a of affixes) counts.set(affixGroup(a), (counts.get(affixGroup(a)) || 0) + 1);
+    for (const a of [...all].sort(compareAffixes)) {
+      const key = affixGroup(a), head = catName(a.header) || "Other";
+      if (seen.has(key) || !(counts.get(key) || f.cats.has(key))) continue;
+      seen.add(key);
+      (heads.get(head) || heads.set(head, []).get(head)).push([key, catName(a.category)]);
+    }
+    const change = (fn) => () => { fn(); draw(); redraw(); };
+    fill(box,
+      h("div", { class: "row" }, h("span", { class: "hint" }, "Sort"),
+        h("div", { class: "seg" }, [["category", "by category"], ["name", "by name"]].map(([k, label]) =>
+          h("button", { class: f.sort === k ? "on" : "", onclick: change(() => { f.sort = k; }) }, label))),
+        f.cats.size ? h("button", { onclick: change(() => f.cats.clear()) }, "All categories") : null),
+      [...heads].map(([head, cats]) => h("div", { class: "chips compact" }, h("span", { class: "hint cat" }, head),
+        cats.map(([key, name]) => chipToggle(name, f.cats.has(key),
+          change(() => { if (f.cats.has(key)) f.cats.delete(key); else f.cats.add(key); }), `${counts.get(key) || 0}`)))));
+  };
+  draw();
+  return box;
+}
+const affixShownBy = (f) => (a) => !f.cats.size || f.cats.has(affixGroup(a));
+
+/** Picked affixes as chips under subheaders: each picker group's line, then its chips, then the next group. */
+function groupedChips(ids, chip) {
+  const out = [];
+  let group = null;
+  for (const id of [...ids].sort(compareAffixes)) {
+    const g = affixGroup(M.affix.get(id));
+    if (g !== group) { group = g; out.push(h("div", { class: "chip-group" }, g)); }
+    out.push(chip(id));
+  }
+  return out;
+}
 /** A "prefix" / "suffix" pill for an affix (or its id). */
 function affixPill(a) {
   a = typeof a === "number" ? M.affix.get(a) : a;
@@ -368,7 +434,7 @@ function saveAsDialog() {
   const locs = S.meta.locations.filter((l) => l !== "template");
   const locSel = h("select", {}, locs.map((l) => h("option", { value: l, selected: l === (S.file?.location || "game") }, LOCATION_LABELS[l])));
   const nameIn = h("input", { value: S.doc.header.name || "", size: 40 });
-  dlg.replaceChildren(
+  fill(dlg, 
     h("h3", {}, "Save filter as"),
     h("div", { class: "row fields" }, h("label", {}, "Folder ", locSel)),
     h("div", { class: "row fields" }, h("label", {}, "File ", fileIn)),
@@ -415,7 +481,7 @@ function iconPicker(state, onChange) {
   const wrap = h("div", {});
   const draw = () => {
     const ids = [0, ...S.meta.filter_icons.icons.map((i) => i.id)];
-    wrap.replaceChildren(
+    fill(wrap, 
       h("div", { class: "icon-grid" }, ids.map((id) => h("button", { class: "icon-cell" + (state.icon === id ? " on" : ""), type: "button",
         onclick: () => { state.icon = id; onChange(state); draw(); } }, filterIcon(id, state.color)))),
       h("div", { class: "row fields" }, h("span", { class: "hint" }, "Colour"),
@@ -431,7 +497,7 @@ function headerIconDialog() {
   if (!S.doc) return;
   const dlg = $("#dlg");
   const state = { icon: S.doc.header.icon || 0, color: S.doc.header.icon_color || 0 };
-  dlg.replaceChildren(h("h3", {}, "Filter icon"),
+  fill(dlg, h("h3", {}, "Filter icon"),
     iconPicker(state, () => {}),
     h("div", { class: "row" }, h("button", { onclick: () => dlg.close() }, "Cancel"),
       h("button", { class: "primary", onclick: () => {
@@ -511,11 +577,11 @@ function newFilter() {
       toast(`Could not rebuild the template: ${e.message}`, true);
     }
   };
-  dlg.replaceChildren(
+  fill(dlg, 
     h("h3", {}, "New filter"),
     h("div", { class: "row fields" }, h("label", {}, "Name ", nameIn)),
     h("div", { class: "row fields" }, h("label", {}, "Class ", clsSel)),
-    h("p", { class: "hint" }, "The class switches on its \"Hide non-<class> class\" and shatter rules and becomes the generators' class."),
+    h("p", { class: "hint" }, "The class switches on the rule hiding other classes' items (ticking every other class) and its shatter rule, and becomes the generators' class."),
     h("div", { class: "group-label" }, "Icon (follows the class until you pick one)"), picker,
     h("div", { class: "group-label" }, "Build-specific parts (off: a blank slate)"),
     ...boxes.map(([, , row]) => row),
@@ -538,7 +604,7 @@ function deleteDialog() {
   const { location, file } = S.file;
   const info = S.filters.find((f) => f.location === location && f.file === file);
   const dlg = $("#dlg");
-  dlg.replaceChildren(
+  fill(dlg, 
     h("h3", {}, "Delete filter?"),
     h("p", {}, h("b", {}, info?.name || file), ` — ${location === "game" ? "game Filters folder" : "out"}/${file}`),
     h("p", { class: "hint" }, "The file is removed (the game stops listing it; if it's the active filter, pick another in-game). "
@@ -606,7 +672,7 @@ async function addMissingSections() {
   const load = async () => {
     const mine = ++seq;
     addBtn.disabled = true;
-    preview.replaceChildren(h("p", { class: "hint" }, "Working out what's missing…"));
+    fill(preview, h("p", { class: "hint" }, "Working out what's missing…"));
     try {
       const cls = clsSel.value;
       const r = await api("/api/complete", { rules: S.doc.rules,
@@ -614,11 +680,11 @@ async function addMissingSections() {
       if (mine !== seq) return;
       res = r;
     } catch (e) {
-      if (mine === seq) preview.replaceChildren(h("p", { class: "bad" }, e.message));
+      if (mine === seq) fill(preview, h("p", { class: "bad" }, e.message));
       return;
     }
     const n = res.rules.length;
-    preview.replaceChildren(
+    fill(preview, 
       res.added.length ? h("p", {}, `${res.added.length} rules would be added (${n}/${S.meta.max_rules} rules then):`)
         : h("p", { class: "hint" }, "Nothing is missing: the filter has every section of the template."),
       res.added.length ? h("ul", { class: "gen-rules added-list" }, res.added.map((name) => h("li", {}, name))) : null,
@@ -626,7 +692,7 @@ async function addMissingSections() {
     addBtn.disabled = !res.added.length || n > S.meta.max_rules;
   };
   clsSel.onchange = load;
-  dlg.replaceChildren(h("h3", {}, "Add missing sections"),
+  fill(dlg, h("h3", {}, "Add missing sections"),
     h("p", { class: "hint" }, `Adds the parts of the new-filter template (${S.meta.template.file}) this filter lacks - always-show affixes, BiS, `
       + "exalted and legendary, class hide, shatter, hide everything else - each where the template has it, and refreshes the [A] rules. "
       + "Rules already here stay as they are."),
@@ -691,7 +757,7 @@ function removeAffixEverywhere(selected = null) {
     const uses = affixUses(selected);
     const editable = uses.filter((u) => u.edit.length);
     const lowers = (c) => c.min_on_same_item > c.affixes.filter((x) => x !== selected).length;
-    dlg.replaceChildren(h("h3", {}, "Remove an affix from every rule"), intro,
+    fill(dlg, h("h3", {}, "Remove an affix from every rule"), intro,
       h("div", { class: "row" }, h("b", {}, affixName(selected)), affixPill(selected), h("span", { class: "spacer" }),
         h("button", { onclick: () => removeAffixEverywhere() }, "← Other affix")),
       h("ul", { class: "gen-rules" }, uses.map((u) => h("li", {}, ruleLabel(u.rule),
@@ -716,20 +782,73 @@ function removeAffixEverywhere(selected = null) {
   } else {
     const search = h("input", { type: "search", placeholder: "Filter affixes…", style: { width: "100%" } });
     const list = h("div", { class: "remove-affix-list" });
-    const items = [...counts].map(([id, n]) => ({ id, n, name: affixName(id) })).sort((a, b) => a.name.localeCompare(b.name));
+    const items = [...counts].sort(([a], [b]) => compareAffixes(a, b))
+      .map(([id, n]) => ({ id, n, name: affixName(id), group: affixGroup(M.affix.get(id)) }));
     const draw = () => {
       const q = search.value.trim().toLowerCase();
-      list.replaceChildren(...items.filter((x) => !q || x.name.toLowerCase().includes(q)).map((x) =>
+      let group = null;
+      fill(list, ...items.filter((x) => !q || x.name.toLowerCase().includes(q)).flatMap((x) => [
+        x.group !== group ? h("div", { class: "grp" }, (group = x.group)) : null,
         h("button", { class: "affix-row", onclick: () => removeAffixEverywhere(x.id) }, x.name, affixPill(x.id),
-          h("span", { class: "hint" }, ` ${x.n} rule${x.n > 1 ? "s" : ""}`))));
+          h("span", { class: "hint" }, ` ${x.n} rule${x.n > 1 ? "s" : ""}`))]));
       if (!list.children.length) list.append(h("p", { class: "hint" }, items.length ? "No affix matches." : "No rule lists any affix."));
     };
     search.oninput = draw;
     draw();
-    dlg.replaceChildren(h("h3", {}, "Remove an affix from every rule"), intro, search, list, close);
+    fill(dlg, h("h3", {}, "Remove an affix from every rule"), intro, search, list, close);
     setTimeout(() => search.focus(), 0);
   }
   if (!dlg.open) dlg.showModal();
+}
+
+/** Dialog: the template's exalted & legendary section put back - only the rules the filter lacks, or all of
+ *  it in place of the filter's (undo with Ctrl+Z). Only asks when there's a choice to make. */
+async function restoreExalted() {
+  if (!S.doc) return;
+  let res;
+  try {
+    res = await api("/api/restore", { rules: S.doc.rules });
+  } catch (e) {
+    toast(`Could not read the new-filter template: ${e.message}`, true);
+    return;
+  }
+  if (res.matches) { toast("The exalted section already is the template's."); return; }
+  const dlg = $("#dlg");
+  const n = (way) => res[way].rules.length;
+  const apply = (way, done) => {
+    mutate(() => { S.doc.rules = res[way].rules; clampSel(); }, { editor: true });
+    dlg.close();
+    toast(`${done} Undo with Ctrl+Z; save to keep it.`);
+  };
+  const names = (title, list) => list.length
+    ? h("details", {}, h("summary", {}, `${title} (${list.length})`), h("ul", { class: "gen-rules" }, list.map((x) => h("li", {}, x)))) : null;
+  const limit = (way) => n(way) > S.meta.max_rules
+    ? h("p", { class: "bad" }, `That makes ${n(way)}/${S.meta.max_rules} rules: free up rules first.`) : null;
+  const plural = (k) => `${k} rule${k === 1 ? "" : "s"}`;
+  const { added } = res.add;
+  const addBox = h("div", { class: "box" },
+    h("div", { class: "row" }, h("b", {}, "Only add missing ones"), h("span", { class: "spacer" }),
+      h("button", { class: "primary", disabled: !added.length || n("add") > S.meta.max_rules,
+        onclick: () => apply("add", `${plural(added.length)} added to the exalted section.`) },
+        added.length ? `Add ${plural(added.length)}` : "Nothing missing")),
+    h("p", { class: "hint" }, added.length ? "Each goes in after the rule it follows in the template; the rules already here stay as they are."
+      : "Every rule of the template's section is here; some differ from the template's - replacing takes the template's."),
+    names("Rules it adds", added), limit("add"));
+  const replaceBox = h("div", { class: "box" },
+    h("div", { class: "row" }, h("b", {}, "Replace all exalted rules"), h("span", { class: "spacer" }),
+      h("button", { class: "danger", disabled: n("replace") > S.meta.max_rules,
+        onclick: () => apply("replace", `The exalted section replaced by the template's (${plural(res.replace.added.length)}).`) }, "Replace")),
+    h("p", { class: "hint" }, "Takes out this filter's section - with your own rules in it and your changes to its rules - and puts the template's in its place."),
+    names("Rules it removes", res.replace.removed), names("Rules it puts in", res.replace.added), limit("replace"));
+  fill(dlg, h("h3", {}, "Restore exalted section"),
+    h("p", { class: "hint" }, `Puts the new-filter template's "${res.header}" section (${S.meta.template.file}) - its exalted, corrupted and legendary rules - back into this filter.`),
+    res.found ? [h("p", {}, "Do you want to replace all exalted rules, or only add missing ones?"), addBox, replaceBox]
+      : [h("p", {}, "This filter has no exalted section: the template's goes after the BiS section (else before the uniques)."),
+        names("Rules it adds", added), limit("add")],
+    h("div", { class: "row" }, h("button", { onclick: () => dlg.close() }, "Cancel"),
+      res.found ? null : h("button", { class: "primary", disabled: n("add") > S.meta.max_rules,
+        onclick: () => apply("add", `The exalted section added (${plural(added.length)}).`) }, "Add it")));
+  dlg.showModal();
 }
 
 /** Dialog: what each way of freeing rules would remove, with a button to do it (undo with Ctrl+Z). */
@@ -745,7 +864,7 @@ async function freeUpRules() {
     return;
   }
   const n = S.doc.rules.length;
-  dlg.replaceChildren(h("h3", {}, "Free up rules"),
+  fill(dlg, h("h3", {}, "Free up rules"),
     h("p", { class: "hint" }, `${n}/${S.meta.max_rules} rules. Removing is undone with Ctrl+Z. Regenerating the [A] rules or applying a generator again brings its removed rules back.`),
     ...CLEANUPS.map(([kind, title, what]) => {
       const { removed } = res[kind];
@@ -770,7 +889,7 @@ function renderStatus() {
   $("#btn-delete").disabled = !S.file || S.file.location === "template";
   if (!S.doc) { st.textContent = "No filter open"; return; }
   const n = S.doc.rules.length;
-  st.replaceChildren(
+  fill(st, 
     S.file ? `${{ game: "game", out: "out", template: "templates" }[S.file.location]}/${S.file.file}` : "unsaved",
     " · ", h("span", { class: n > S.meta.max_rules ? "bad" : "" }, `${n}/${S.meta.max_rules} rules`),
     S.dirty ? h("span", { class: "dirty" }, " · unsaved changes") : "",
@@ -781,7 +900,7 @@ function renderStatus() {
 
 function renderHeader() {
   const btn = $("#hdr-icon");
-  btn.replaceChildren(S.doc ? filterIcon(S.doc.header.icon || 0, S.doc.header.icon_color || 0, 20) : "");
+  fill(btn, S.doc ? filterIcon(S.doc.header.icon || 0, S.doc.header.icon_color || 0, 20) : "");
   btn.disabled = !S.doc;
   const name = $("#hdr-name"), desc = $("#hdr-desc");
   name.value = S.doc?.header.name || "";
@@ -1014,7 +1133,9 @@ function conditionBody(rule, c) {
         chipToggle(cl, c.classes.includes(cl), () => mutate(() => {
           toggleIn(c.classes, cl);
           c.classes.sort((a, b) => S.meta.enums.classes.indexOf(a) - S.meta.enums.classes.indexOf(b));
-        }, re)))), h("p", { class: "hint" }, "Matches class-specific items of the selected classes; none selected = any item."));
+        }, re)))), h("p", { class: "hint" }, "Matches class-specific items of the selected classes; none selected = any item."),
+        !c.classes.length && rule.type === "HIDE" && rule.enabled
+          ? h("p", { class: "warn" }, "⚠ With no class selected this hide rule hides every item its other conditions match.") : null);
     case "UniqueModifiersCondition": return uniquesEditor(c);
     case "CorruptionCondition":
       return h("select", { onchange: (e) => mutate(() => { c.corruption = e.target.value; }, re) },
@@ -1225,7 +1346,7 @@ let tipEl = null;
 function hideTip() { if (tipEl) tipEl.style.display = "none"; }
 function showTip(e, content) {
   if (!tipEl) { tipEl = h("div", { class: "tip" }); document.body.append(tipEl); }
-  tipEl.replaceChildren(content);
+  fill(tipEl, content);
   tipEl.style.display = "block";
   const pad = 14, r = tipEl.getBoundingClientRect();
   let x = e.clientX + pad, y = e.clientY + pad;
@@ -1319,7 +1440,7 @@ function searchPicker(items, isSelected, onAdd, placeholder, { query = "", onQue
     results.replaceChildren();
     let group = null;
     for (const it of shown.slice(0, 400)) {
-      if (it.group !== group) { group = it.group; put(results, h("div", { class: "grp" }, group || "")); }
+      if (it.group !== group) { group = it.group; if (group) put(results, h("div", { class: "grp" }, group)); }
       put(results, h("div", { class: "opt" + (it.cell ? " with-value" : ""), onclick: () => { hideTip(); onAdd([it.id]); },
         onmousemove: it.tip ? (e) => showTip(e, it.tip()) : null, onmouseleave: it.tip ? hideTip : null },
         h("span", {}, it.label, it.pill ? it.pill() : null), h("span", { class: "meta" }, it.meta || ""), it.cell ? it.cell() : null));
@@ -1353,15 +1474,25 @@ function affixEditor(rule, c) {
   const omenOf = (a) => !!omenPool?.has(a.id);
   const showAll = SHOW_ALL_AFFIXES.has(c);
   const tiersOf = (a) => conditionTiers(c, Math.max(1, ...(a.lines || []).map((l) => l.tiers.length)));
-  const items = S.meta.affixes
+  const listed = S.meta.affixes
     .filter((a) => showAll || (omenPool ? omenPool.has(a.id) : !typeIds.size || a.rolls_on.some((t) => typeIds.has(t)) || omenExtra?.has(a.id)))
-    .map((a) => ({ id: a.id, label: a.name, alt: a.en_name, group: `${catName(a.header)} · ${catName(a.category)}`,
-      meta: a.idol ? "idol" : "", pill: () => affixPill(a),
-      cell: () => affixValueCell(a, { tiers: tiersOf(a), typeIds, omen: omenOf(a) }) }))
-    .sort((a, b) => a.group.localeCompare(b.group) || a.label.localeCompare(b.label));
+    .sort(compareAffixes);
   const sel = new Set(c.affixes);
+  const f = AFFIX_PICKER.get(c) || { ...newAffixFilter(), q: "" };
+  AFFIX_PICKER.set(c, f);
+  const pickerBox = h("div", {});
+  const drawPicker = () => {
+    const items = listed.filter(affixShownBy(f)).map((a) => ({ id: a.id, label: a.name, alt: `${a.en_name || ""} ${a.internal_name || ""}`,
+      group: f.sort === "name" ? "" : affixGroup(a), meta: a.idol ? "idol" : "", pill: () => affixPill(a),
+      cell: () => affixValueCell(a, { tiers: tiersOf(a), typeIds, omen: omenOf(a) }) }));
+    if (f.sort === "name") items.sort((x, y) => x.label.localeCompare(y.label));
+    fill(pickerBox, searchPicker(items, (id) => sel.has(id), (ids) => mutate(() => { c.affixes = [...c.affixes, ...ids.filter((i) => !sel.has(i))]; }, re),
+      f.cats.size ? "Search the ticked categories…" : "Search affixes to add…", { query: f.q, onQuery: (q) => { f.q = q; } }));
+  };
+  const filterBar = affixFilterBar(f, listed.filter((a) => !sel.has(a.id)), drawPicker, listed);
+  drawPicker();
   return h("div", {},
-    h("div", { class: "selected-list" }, c.affixes.length ? c.affixes.map((id) => {
+    h("div", { class: "selected-list" }, c.affixes.length ? groupedChips(c.affixes, (id) => {
       const a = M.affix.get(id);
       return h("span", { class: "chip on", onmousemove: a?.lines?.length ? (e) => showTip(e, affixTierTable(a, tiersOf(a), affixScale(a, typeIds, omenOf(a)), typeIds, omenOf(a))) : null,
         onmouseleave: hideTip }, affixName(id), affixPill(id), h("button", { title: "remove", onclick: () => { hideTip(); mutate(() => { c.affixes = c.affixes.filter((x) => x !== id); }, re); } }, "×"));
@@ -1391,7 +1522,7 @@ function affixEditor(rule, c) {
     h("div", { class: "row" }, h("label", { class: "hint" },
       h("input", { type: "checkbox", checked: showAll, onchange: (e) => { if (e.target.checked) SHOW_ALL_AFFIXES.add(c); else SHOW_ALL_AFFIXES.delete(c); renderEditor(); } }),
       typeIds.size ? "list affixes for every item type (not only this rule's)" : "this rule has no item type: every affix is listed")),
-    searchPicker(items, (id) => sel.has(id), (ids) => mutate(() => { c.affixes = [...c.affixes, ...ids.filter((i) => !sel.has(i))]; }, re), "Search affixes to add…"));
+    h("div", { class: "group-label" }, "Add affixes - quick filter by category"), filterBar, pickerBox);
 }
 
 /* A unique's roll (0-255, what a filter's roll range stores) as its value, and back - as the game
@@ -1529,14 +1660,14 @@ function uniquesEditor(c) {
   const state = UNIQUE_PICKER.get(c) || { types: new Set(), q: "" };
   UNIQUE_PICKER.set(c, state);
   const sel = new Set(c.uniques.map((u) => u.id));
-  const items = S.meta.uniques
+  const items = S.meta.uniques.filter((u) => !u.hidden)   // as in-game: no uniques hidden from players
     .map((u) => ({ id: u.id, label: u.name, alt: u.en_name, group: u.base_type_name || "", type: u.base_type,
       meta: `${u.is_set ? "set · " : ""}${u.weavers_will ? "WW · " : ""}LPL ${u.lpl}`, tip: () => uniqueTip(u) }))
     .sort((a, b) => a.group.localeCompare(b.group) || a.label.localeCompare(b.label));
   const counts = new Map();
-  for (const u of S.meta.uniques) counts.set(u.base_type, (counts.get(u.base_type) || 0) + 1);
+  for (const u of S.meta.uniques) if (!u.hidden) counts.set(u.base_type, (counts.get(u.base_type) || 0) + 1);
   const chipsBox = h("div", { class: "uniq-types" }), pickerBox = h("div", {});
-  const drawPicker = () => pickerBox.replaceChildren(searchPicker(items.filter((it) => !state.types.size || state.types.has(it.type)),
+  const drawPicker = () => fill(pickerBox, searchPicker(items.filter((it) => !state.types.size || state.types.has(it.type)),
     (id) => sel.has(id), (ids) => mutate(() => {
       c.uniques = [...c.uniques, ...ids.filter((i) => !sel.has(i)).map((id) => ({ id, rolls: [] }))];
     }, re), "Search uniques / sets to add…", { query: state.q, onQuery: (q) => { state.q = q; } }));
@@ -1797,14 +1928,16 @@ function renderLevForm() {
 }
 
 const normName = (x) => String(x).toLowerCase().replace(/[^a-z0-9]/g, "");
-/** Whether a kind of gear's exclude list names the affix: by id, or by its English name (config.toml). */
+/** Whether a kind of gear's exclude list names the affix: by id, or by its English name - the game's or the
+ *  affix's own (config.toml). */
+const affixNames = (a) => new Set([normName(a.en_name || a.name), normName(a.internal_name || a.en_name || a.name)]);
 function excludes(sec, a) {
-  const n = normName(a.en_name || a.name);
-  return (sec.exclude || []).some((e) => e === a.id || (typeof e === "string" && normName(e) === n));
+  const n = affixNames(a);
+  return (sec.exclude || []).some((e) => e === a.id || (typeof e === "string" && n.has(normName(e))));
 }
 function unexclude(sec, a) {
-  const n = normName(a.en_name || a.name);
-  sec.exclude = (sec.exclude || []).filter((e) => e !== a.id && !(typeof e === "string" && normName(e) === n));
+  const n = affixNames(a);
+  sec.exclude = (sec.exclude || []).filter((e) => e !== a.id && !(typeof e === "string" && n.has(normName(e))));
 }
 
 /** A kind of gear's affix toggles: only those with affixes that roll on it, with what its rules take as counts. */
@@ -1869,7 +2002,7 @@ function classAffixPicker(o, s, toggleList) {
     S.lev.classSearch[s] = search.value;
     box.replaceChildren();
     for (const [where, list] of groups) {
-      const shown = list.filter((a) => !q || [a.name, a.en_name].some((x) => (x || "").toLowerCase().includes(q)));
+      const shown = list.filter((a) => !q || [a.name, a.en_name, a.internal_name].some((x) => (x || "").toLowerCase().includes(q)));
       if (!shown.length) continue;
       put(box, h("div", { class: "pool-group" },
         h("div", { class: "grp-head" }, h("span", {}, `${where} (${list.length})`)),
@@ -1938,7 +2071,7 @@ function showToml() {
   const text = ["[leveling]", "enabled = true", ...keys.map((k) => `${k} = ${tomlVal(o[k] ?? "")}`)].join("\n");
   const dlg = $("#dlg");
   const ta = h("textarea", { value: text, style: { minHeight: "320px", minWidth: "560px" } });
-  dlg.replaceChildren(h("h3", {}, "[leveling] section for config.toml"),
+  fill(dlg, h("h3", {}, "[leveling] section for config.toml"),
     h("p", { class: "hint" }, "Replace the [leveling] section in config.toml with this to get the same rules from `python -m lefilter build`."),
     ta, h("div", { class: "row" },
       h("button", { onclick: async () => { try { await navigator.clipboard.writeText(text); toast("Copied"); } catch { ta.select(); } } }, "Copy"),
@@ -2261,7 +2394,7 @@ function renderIdolSummary() {
     total != null ? h("span", { class: total > S.meta.max_rules ? "bad" : "" }, ` · filter would have ${total}/${S.meta.max_rules} rules`) : ""),
   h("div", { class: "row" },
     h("button", { class: "primary", disabled: !S.doc || (!n && !res.removed) || total > S.meta.max_rules, onclick: applyIdols }, S.doc ? "Apply to the open filter" : "No filter open"),
-    h("span", { class: "hint" }, "Then save. Without a section yet it goes right after the shatter section (before the uniques), else under a separator named like IDOL, else at the top.")),
+    h("span", { class: "hint" }, "Then save. Without a section yet it goes under a separator named like IDOL, else right before the uniques, else at the top.")),
   res.warnings.map((w) => h("div", { class: "warn" }, `⚠ ${w}`)),
   n ? h("details", {}, h("summary", {}, "Generated rules"),
     h("ul", { class: "gen-rules" }, res.rules.map((r) => h("li", {}, ruleSwatch(r), h("span", {}, r.name))))) : null);
@@ -2269,7 +2402,7 @@ function renderIdolSummary() {
 
 function renderIdolEditor() {
   const p = $("#idol-editor");
-  p.replaceChildren(h("div", { class: "box sticky", id: "idol-summary" }));
+  fill(p, h("div", { class: "box sticky", id: "idol-summary" }));
   renderIdolSummary();
   const o = idolOpts();
   if (S.idol.sel === ALTAR_KEY && S.meta.idol_altar) { renderAltarEditor(p, o); return; }
@@ -2287,6 +2420,7 @@ function renderIdolEditor() {
     if (!groups.has(a.group)) groups.set(a.group, []);
     groups.get(a.group).push(a);
   }
+  for (const list of groups.values()) list.sort((x, y) => compareAffixes(x.id, y.id));
   const copyTargets = S.meta.idol_kinds.filter((x) => x.key !== k.key);
   const poolBox = h("div", {});
   const search = h("input", { type: "search", placeholder: "Filter this idol's affixes…", style: { flex: 1 }, value: S.idol.search || "" });
@@ -2364,6 +2498,7 @@ function renderAltarEditor(p, o) {
     if (!groups.has(a.group)) groups.set(a.group, []);
     groups.get(a.group).push(a);
   }
+  for (const list of groups.values()) list.sort((x, y) => compareAffixes(x.id, y.id));
   put(p,
     h("div", { class: "idol-head" }, h("div", {}, h("h2", { style: { margin: 0 } }, "Idol altar"),
       h("div", { class: "hint" }, "One rule, with a beam: the preferred altars with at least one of the preferred affixes. Leave a list empty to take any altar / any affix."))),
@@ -2576,7 +2711,7 @@ async function applyBis() {
 
 function renderBisEditor() {
   const p = $("#bis-editor");
-  p.replaceChildren(h("div", { class: "box sticky", id: "bis-summary" }));
+  fill(p, h("div", { class: "box sticky", id: "bis-summary" }));
   renderBisSummary();
   const o = bisOpts();
   const meta = bisSlotMeta(S.bis.sel) || S.meta.bis.slots[0];
@@ -2656,8 +2791,8 @@ function renderBisEditor() {
     .filter((a) => !multi || !typeIds.size || a.rolls_on.some((x) => typeIds.has(x)));
   const picked = new Set(s.affixes);
   const groups = new Map();
-  for (const a of [...offered].sort((x, y) => x.name.localeCompare(y.name))) {
-    const g = `${catName(a.header)} · ${catName(a.category)}`;
+  for (const a of [...offered].sort(compareAffixes)) {
+    const g = affixGroup(a);
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(a);
   }
@@ -2675,15 +2810,19 @@ function renderBisEditor() {
   };
   const box = h("div", {});
   const search = h("input", { type: "search", placeholder: "Filter affixes…", style: { flex: 1 }, value: S.bis.search || "" });
+  const f = ((S.bis.filters ||= {})[meta.key] ||= newAffixFilter());
   const draw = () => {
     const q = search.value.trim().toLowerCase();
     S.bis.search = search.value;
     box.replaceChildren();
-    for (const [g, list] of groups) {
-      const shown = list.filter((a) => !q || [a.name, a.en_name].some((x) => (x || "").toLowerCase().includes(q)));
+    const lists = f.sort === "name"
+      ? [["", [...offered].filter(affixShownBy(f)).sort((x, y) => x.name.localeCompare(y.name))]]
+      : [...groups].filter(([g]) => !f.cats.size || f.cats.has(g));
+    for (const [g, list] of lists) {
+      const shown = list.filter((a) => !q || [a.name, a.en_name, a.internal_name].some((x) => (x || "").toLowerCase().includes(q)));
       if (!shown.length) continue;
       put(box, h("div", { class: "pool-group" },
-        h("div", { class: "grp-head" }, h("span", {}, `${g} (${list.length})`)),
+        g ? h("div", { class: "grp-head" }, h("span", {}, `${g} (${list.length})`)) : null,
         h("div", { class: "pool-cols" }, shown.map((a) => h("label", {},
           h("input", { type: "checkbox", checked: picked.has(a.id), onchange: () => flip(s.affixes, a.id) }), affixName(a.id), affixPill(a),
           affixValueCell(a, { typeIds }))))));
@@ -2734,10 +2873,11 @@ function renderBisEditor() {
           copyTo(v === "*" ? others : others.filter((x) => x.key === v));
         } }, "Copy")];
       })()),
-    s.affixes.length ? h("div", { class: "selected-list" }, s.affixes.map((id) => h("span", { class: "chip on" }, affixName(id), affixPill(id),
+    s.affixes.length ? h("div", { class: "selected-list" }, groupedChips(s.affixes, (id) => h("span", { class: "chip on" }, affixName(id), affixPill(id),
       h("button", { title: "remove", onclick: () => flip(s.affixes, id) }, "×")))) : null,
     unknown.length ? h("p", { class: "hint" }, `${unknown.length} picked affix${unknown.length > 1 ? "es" : ""} can't roll on the ticked item types (or the class); `
       + "they only count where they roll.") : null,
+    offered.length ? affixFilterBar(f, offered, draw) : null,
     box);
 }
 
@@ -2778,10 +2918,18 @@ function renderTestForm() {
   const typeSel = h("select", { onchange: (e) => { it.type = e.target.value; it.subtype = (M.base.get(it.type)?.subtypes[0]?.id) ?? 0; it.unique = null; it.affixes = []; testChanged(); } });
   for (const [cat, list] of basesByCategory()) put(typeSel, h("optgroup", { label: cat }, list.map((b) => h("option", { value: b.type, selected: b.type === it.type }, b.name))));
   const isUnique = ["UNIQUE", "SET", "LEGENDARY"].includes(it.rarity);
-  const uniques = S.meta.uniques.filter((u) => base && u.base_type === base.id && (it.rarity === "SET" ? u.is_set : !u.is_set));
+  const uniques = S.meta.uniques.filter((u) => !u.hidden && base && u.base_type === base.id && (it.rarity === "SET" ? u.is_set : !u.is_set));
   const kind = idolKindFor(it.type, it.subtype);   // idols: exactly the pool the game rolls from
   const eligible = (kind ? kind.pool.map((p) => M.affix.get(p.id)).filter(Boolean)
-    : S.meta.affixes.filter((a) => base && a.rolls_on.includes(base.id))).sort((a, b) => a.name.localeCompare(b.name));
+    : S.meta.affixes.filter((a) => base && a.rolls_on.includes(base.id))).sort(compareAffixes);
+  const optgroups = (sel) => {
+    const out = [];
+    for (const x of eligible) {
+      if (affixGroup(x) !== out.at(-1)?.label) out.push(h("optgroup", { label: affixGroup(x) }));
+      put(out.at(-1), h("option", { value: x.id, selected: x.id === sel }, `${x.name} (${x.kind || (x.prefix ? "prefix" : "suffix")})`));
+    }
+    return out;
+  };
   put(f, 
     h("h3", {}, "Item"),
     h("div", { class: "row" }, h("label", {}, "Type", typeSel)),
@@ -2804,11 +2952,12 @@ function renderTestForm() {
     h("h3", {}, "Affixes"),
     it.affixes.map((a, i) => h("div", { class: "affix-line" },
       h("select", { onchange: (e) => { a.id = Number(e.target.value); testChanged(false); } },
-        eligible.map((x) => h("option", { value: x.id, selected: x.id === a.id }, `${x.name} (${x.kind || (x.prefix ? "prefix" : "suffix")})`)),
+        optgroups(a.id),
         eligible.some((x) => x.id === a.id) ? null : h("option", { value: a.id, selected: true }, affixName(a.id))),
       affixPill(a.id),
       h("select", { onchange: (e) => { a.tier = Number(e.target.value); testChanged(false); } },
-        [1, 2, 3, 4, 5, 6, 7, 8].map((t) => h("option", { value: t, selected: t === a.tier }, `T${t}`))),
+        Array.from({ length: Math.max(a.tier || 1, affixMaxTier(a.id)) }, (_, t) => t + 1)
+          .map((t) => h("option", { value: t, selected: t === a.tier }, `T${t}`))),
       h("button", { onclick: () => { it.affixes.splice(i, 1); testChanged(); } }, "✕"))),
     h("div", { class: "row" }, h("button", { disabled: !eligible.length || it.affixes.length >= 6, onclick: () => {
       const used = new Set(it.affixes.map((a) => a.id));
@@ -2892,6 +3041,7 @@ function wire() {
   $("#btn-refresh").onclick = refreshGenerated;
   $("#btn-free").onclick = freeUpRules;
   $("#btn-remove-affix").onclick = () => removeAffixEverywhere();
+  $("#btn-restore-exalted").onclick = restoreExalted;
   $("#btn-complete").onclick = addMissingSections;
   $("#btn-reorder").onclick = reorderSections;
   $("#btn-delete").onclick = deleteDialog;
@@ -2933,7 +3083,7 @@ async function init() {
   S.meta = applyLanguage(META_EN, null);
   indexMeta(S.meta);
   const langSel = $("#lang-select");
-  langSel.replaceChildren(...META_EN.languages.map((l) => h("option", { value: l.code }, l.label)));
+  fill(langSel, ...META_EN.languages.map((l) => h("option", { value: l.code }, l.label)));
   langSel.addEventListener("change", () => setLanguage(langSel.value));
   const lang = store.get("lang", "en");
   if (lang !== "en" && META_EN.languages.some((l) => l.code === lang)) await setLanguage(lang);

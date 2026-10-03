@@ -206,7 +206,8 @@ def place_bis(current: list[dict], new: list[dict], header: str = HEADER) -> tup
 
 def _class_of(rules: list[dict], slots: dict, bases: dict[str, dict]) -> str:
     """The class a BiS section was made for: the one class every picked class base is for, else
-    the class whose "Hide non-<class>" rule is on (the template's class hide rules), else ""."""
+    the class an enabled class hide rule leaves out (the template's one: it hides every other
+    class; before v0.3.1 one rule per class, "Hide non-<class>"), else ""."""
     bits = None
     for s in slots.values():
         for t, ids in s["bases"].items():
@@ -219,6 +220,13 @@ def _class_of(rules: list[dict], slots: dict, bases: dict[str, dict]) -> str:
             return own[0]
     on = [c for c in CLASSES for r in rules if "raw" not in r and r.get("enabled")
           and re.search(rf"\bHide non-{c}\b", r.get("name") or "")]
+    for r in rules:
+        if "raw" in r or not r.get("enabled") or r.get("type") != "HIDE":
+            continue
+        for cond in r["conditions"]:
+            left = [c for c in CLASSES if c not in cond.get("classes", CLASSES)]
+            if cond["type"] == "ClassCondition" and "raw" not in cond and len(left) == 1:
+                on.append(left[0])
     return on[0] if len(set(on)) == 1 else ""
 
 

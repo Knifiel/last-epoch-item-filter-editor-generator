@@ -43,6 +43,8 @@ _EXALTED_V020 = [
     {"name": "EXALTED - T7 + T6", "min": 2, "tier": 6, "total": 13, "uncorrupted": True, "color": 7, "enabled": False},
     {"name": "EXALTED - SINGLE T7", "min": 1, "tier": 7, "uncorrupted": True, "color": 8},
 ]
+CLASS_HIDE_NAME = "Hide items of other classes (select what classes you don't want to see)"
+UPDATED_CLASS_HIDE_NAME = ("Hide non-{class} class non-legendary items", CLASS_HIDE_NAME)   # one rule per class before v0.3.1
 UPDATED_EXALTED_RULES = (_EXALTED_V020, _EXALTED_V020 + [
     {"name": "EXALTED - CORRUPTED DOUBLE T7", "min": 2, "tier": 7, "corrupted": True, "color": 11, "emphasized": True}])
 
@@ -59,6 +61,8 @@ def _swap_defaults(config: dict, to_new: bool) -> dict:
             g["rules"] = swap(*UPDATED_GROUP_RULES[g["name"]], g["rules"])
     if "exalted_rule" in out:
         out["exalted_rule"] = swap(*UPDATED_EXALTED_RULES, out["exalted_rule"])
+    if "name" in out.get("class_hide", {}):
+        out["class_hide"]["name"] = swap(*UPDATED_CLASS_HIDE_NAME, out["class_hide"]["name"])
     return out
 
 
@@ -69,9 +73,12 @@ def upgrade_config(config: dict) -> dict:
 
 def released_defaults(config: dict) -> dict:
     """The config as earlier versions used it: UPDATED_* settings at either default get the old
-    one, and no [starter] corrupted rule (they had none)."""
+    one, no [starter] corrupted rule (they had none) and shatter rules for exalted items too.
+    (Their per-class hide rules: see starter.legacy_template_rules.)"""
     out = _swap_defaults(config, False)
     out["starter"] = {**out.get("starter", {}), "corrupted": False}
+    out["class_hide"] = {"name": UPDATED_CLASS_HIDE_NAME[0], **out.get("class_hide", {})}
+    out["shatter"] = {**out.get("shatter", {}), "rarity": ["MAGIC", "RARE", "EXALTED"]}   # exalted too, before v0.3.1
     return out
 
 
@@ -331,8 +338,8 @@ def plan_rules(config: dict, uniques: list[dict]) -> Plan:
         if g.only:
             chosen = index.resolve(g.only, where)
         else:
-            chosen = [u for u in uniques
-                      if cat[u["id"]] in g.categories
+            chosen = [u for u in uniques   # hidden: hideFromPlayers - never drop, the game's picker leaves them out
+                      if cat[u["id"]] in g.categories and not u.get("hidden")
                       and (g.lpl_min is None or u["lpl"] >= g.lpl_min)
                       and (g.lpl_max is None or u["lpl"] <= g.lpl_max)
                       and (not types or u["base_type"] in types)]
@@ -364,7 +371,7 @@ def plan_rules(config: dict, uniques: list[dict]) -> Plan:
     if section and section.slot is not None:
         rules.append(_build_slot(section, prefix))
 
-    uncovered = [u for u in uniques if u["id"] not in selected]
+    uncovered = [u for u in uniques if u["id"] not in selected and not u.get("hidden")]
     return Plan(rules=rules, members=members, uncovered=uncovered, warnings=warnings)
 
 
@@ -399,26 +406,43 @@ def plan_affix_rules(config: dict, affixes: list[dict]) -> tuple[list[Rule], dic
     return rules, members, warnings
 
 
-def plan_class_hide(config: dict) -> list[Rule]:
-    """[class_hide] -> one hide rule per class for the class-specific items only the other
-    classes can use (normal/magic/rare by default). They start disabled except for the
-    classes in `enabled_for`: in a build's copy of the template, enable the one for its class."""
+def class_hide_name(config: dict) -> str:
+    """The [class_hide] rule's name, rule_prefix included (a per-class name with {class}, from
+    before it was one rule, gives the default)."""
+    name = config.get("class_hide", {}).get("name", CLASS_HIDE_NAME)
+    return config.get("filter", {}).get("rule_prefix", "") + (CLASS_HIDE_NAME if "{class}" in name else name)
+
+
+def plan_class_hide(config: dict, per_class: bool = False) -> list[Rule]:
+    """[class_hide] -> one rule hiding the class-specific items (normal/magic/rare by default) of
+    the classes it lists. With `enabled_for` (the classes the build plays) it's on and lists every
+    other class; else it's off and lists all five - untick yours in a build's copy (none ticked
+    would match every item). per_class: the rule per class earlier versions made instead, for
+    telling their templates' rules apart."""
     cfg = config.get("class_hide", {})
     _check_keys(cfg, CLASS_HIDE_KEYS, "[class_hide]")
     if not cfg.get("add", False):
         return []
-    prefix = config.get("filter", {}).get("rule_prefix", "")
-    name = cfg.get("name", "Hide non-{class} class non-legendary items")
     rarity = cfg.get("rarity", ["NORMAL", "MAGIC", "RARE"])
     enabled_for = cfg.get("enabled_for", [])
     if not rarity or set(rarity) - set(RARITIES):
         raise ConfigError(f"[class_hide] rarity: pick from {', '.join(RARITIES)}")
     if set(enabled_for) - set(CLASSES):
         raise ConfigError(f"[class_hide] enabled_for: classes are {', '.join(CLASSES)}")
-    return [Rule(name=f"{prefix}{name.replace('{class}', c)}", group="class items",
-                 spec=RuleSpec(action="hide", enabled=c in enabled_for), unique_ids=None,
-                 rarity=" ".join(r for r in RARITIES if r in rarity), classes=[o for o in CLASSES if o != c])
-            for c in CLASSES]
+    rarity = " ".join(r for r in RARITIES if r in rarity)
+    if per_class:
+        prefix = config.get("filter", {}).get("rule_prefix", "")
+        name = cfg.get("name", UPDATED_CLASS_HIDE_NAME[0])
+        if "{class}" not in name:
+            return []
+        return [Rule(name=f"{prefix}{name.replace('{class}', c)}", group="class items",
+                     spec=RuleSpec(action="hide", enabled=c in enabled_for), unique_ids=None,
+                     rarity=rarity, classes=[o for o in CLASSES if o != c]) for c in CLASSES]
+    hidden = [c for c in CLASSES if c not in enabled_for] if enabled_for else list(CLASSES)
+    if not hidden:
+        raise ConfigError("[class_hide] enabled_for lists every class: there's no other class to hide")
+    return [Rule(name=class_hide_name(config), group="class items", spec=RuleSpec(action="hide", enabled=bool(enabled_for)),
+                 unique_ids=None, rarity=rarity, classes=hidden)]
 
 
 def lpl_histogram(uniques: list[dict], thresholds: dict[str, float], edges=(30, 60, 80, 100, 200)):

@@ -34,8 +34,8 @@ from .leveling import (SECTIONS, TOGGLES, class_affix_choices, class_affixes, pa
 from .sections import IDOL_PLACEMENT, doc_infos, place, reorder_generated
 from . import __version__
 from .starter import (PARTS, TEMPLATE_PARTS, add_missing_sections, class_hide_spot, load_template, make_template,
-                      new_from_template, refresh_generated, sync_template, template_stamp, write_generated_template,
-                      write_template)
+                      new_from_template, refresh_generated, restore_section, sync_template, template_stamp,
+                      write_generated_template, write_template)
 from .matcher import Context, evaluate
 from .rules import ConfigError, read_config
 
@@ -151,7 +151,8 @@ class Api:
             "affixes": d["affixes"],
             "uniques": [{**{k: u[k] for k in ("id", "name", "base_type", "base_type_name", "sub_type", "level", "lpl",
                                                "is_set", "weavers_will")},
-                         "tooltip": u.get("tooltip"), "rolls": u.get("rolls") or [], "lore": u.get("lore", "")}
+                         "tooltip": u.get("tooltip"), "rolls": u.get("rolls") or [], "lore": u.get("lore", ""),
+                         "hidden": bool(u.get("hidden"))}
                         for u in d["uniques"]],
             "enums": {"rarities": gamedata.RARITIES, "classes": gamedata.CLASSES, "factions": gamedata.FILTER_FACTIONS,
                       "faction_labels": gamedata.FACTION_LABELS, "corruption": gamedata.CORRUPTION, "comparsion": gamedata.COMPARSION,
@@ -272,6 +273,12 @@ class Api:
         template = load_template(self.template_file, self.config, self.data)
         return add_missing_sections(self.config, self.data, template, body["rules"], body.get("options", {}))
 
+    def restore(self, body: dict) -> dict:
+        """The template's exalted & legendary section put back into the open filter, both ways (Restore exalted section)."""
+        template = load_template(self.template_file, self.config, self.data)
+        header = self.config.get("starter", {}).get("header", "------ EXALTED & LEGENDARY ------")
+        return {"header": header, **restore_section(body["rules"], template, header)}
+
     def cleanup(self, body: dict) -> dict:
         """What each way of freeing rules would remove: {kind: {"rules": kept, "removed": [names]}}."""
         rules, lev = body["rules"], body.get("leveling", {})
@@ -365,7 +372,7 @@ def _handler(api: Api):
                       "/api/idols": api.idols, "/api/idols/read": api.idols_read,
                       "/api/refresh": api.refresh, "/api/cleanup": api.cleanup, "/api/filter/delete": api.delete,
                       "/api/new": api.new, "/api/complete": api.complete, "/api/bis": api.bis,
-                      "/api/bis/read": api.bis_read, "/api/reorder": api.reorder,
+                      "/api/bis/read": api.bis_read, "/api/reorder": api.reorder, "/api/restore": api.restore,
                       "/api/template/rebuild": api.rebuild_template}
             fn = routes.get(urlparse(self.path).path)
             if not fn:

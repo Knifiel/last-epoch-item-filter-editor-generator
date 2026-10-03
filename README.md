@@ -45,7 +45,9 @@ on Windows and `~/.local/share/last-epoch-item-filter-editor` on Linux.
 ## What it does
 
 - **[Editor](#the-editor)**: every rule and condition the game has, drag-and-drop ordering,
-  undo/redo, an item tester that shows which rule catches an item and why, affix values as the
+  undo/redo, an item tester that shows which rule catches an item and why, affixes named, grouped
+  and ordered like the in-game picker (picked ones under their category's subheader; a quick filter
+  by category and a by-name order for long lists), affix values as the
   game shows them ("+24-30% Cold Penetration") with per-tier tables, and the game's own names in
   any of its languages.
 - **New filter from a template**: legendary/unique and set rules grouped by drop rarity, LP and
@@ -136,13 +138,17 @@ the uniques/sets you want in-game (rolls can be filtered there too) and enable i
 Generated rules start with `[A] `, so if you ever use a filled-in filter as `base`,
 rename the slot first or the next run replaces it.
 
-## Class item hide rules
+## Class item hide rule
 
-`[class_hide]` adds one disabled rule per class, e.g. `[A] Hide non-Sentinel class
-non-legendary items`: it hides normal/magic/rare class-specific items that only the other
-four classes can use. They go right below the always-show affix rules at the top, so they
-keep those items out of every rule below (BiS, corrupted, shatter, leveling ...). In a
-build's copy, enable the one for its class (or list classes in `enabled_for`).
+`[class_hide]` adds one rule, `[A] Hide items of other classes (select what classes you
+don't want to see)`: it hides the normal/magic/rare class-specific items of the classes it
+ticks. *New* ticks every class but the one you pick and switches it on; in the template it's
+off with all five ticked (none ticked would match every item). Change the ticks in the rule
+editor - refreshing the `[A]` rules keeps them. It goes right below the always-show affix
+rules and the shatter section at the top, so it keeps those items out of every rule below
+(BiS, corrupted, leveling ...). `enabled_for` (the classes you play) sets it up for `build`.
+Filters from before v0.3.1 had one rule per class; refreshing their `[A]` rules turns them
+into this one, hiding what their switched-on rules hid.
 
 ## How the data is read
 
@@ -206,10 +212,16 @@ of the game's languages (the editor's own labels stay English).
   ranges, as in-game: type the values the tooltip shows; they're stored as the game stores
   them (rolls 0-255, converted the game's way). *Preview at character level* dims rules that are switched off at that level.
 - **Reorder generated sections** (Rules tab) moves the generated sections back to their
-  places - the class hide rules right below the always-show rules at the top, BiS rules under
-  the BiS header, the idol section after the shatter section, the leveling section above the
-  bottom hide-everything rule - each only if the filter has that spot; other rules stay where
-  they are. Ctrl+Z undoes it.
+  places - BiS rules under the BiS header, the idol section right before the uniques, the
+  leveling section above the bottom hide-everything rule (each only if the filter has that
+  spot), then the shatter section and the class hide rule to the top, right below the
+  always-show rules; other rules stay where they are. Ctrl+Z undoes it.
+- **Restore exalted section…** (Rules tab) puts the new-filter template's exalted & legendary
+  section back into the open filter - handy when the template gained rules after the filter was
+  made (e.g. the corrupted rules): *only add missing ones* (each after the rule it follows in the
+  template; the rules already there stay as they are) or *replace all exalted rules* (the
+  filter's section, with its own rules and changes, gives way to the template's). A filter
+  without the section gets the whole of it, after the BiS section. Ctrl+Z undoes it.
 - **Remove an affix…** (Rules tab) takes one affix out of every rule's affix condition at
   once: pick it from the affixes the filter's rules list (with how many rules list each), see
   the rules it goes from, remove. A rule listing only that affix keeps it (an empty list
@@ -219,7 +231,7 @@ of the game's languages (the editor's own labels stay English).
 - **Add missing sections…** (Rules tab) completes a filter that didn't start from *New* -
   e.g. the uniques-only one `build --standalone` writes, which the editor points out when
   you open it: the new-filter template's always-show affixes, generic BiS rules, exalted and
-  legendary, class hide (the chosen class's on), shatter and hide-everything rules, each
+  legendary, class hide (set up for the chosen class), shatter and hide-everything rules, each
   where the template has them. Sections the filter already has stay as they are.
 - **Leveling generator**: see [below](#leveling-section); *Apply* puts the section into
   the open filter.
@@ -239,20 +251,23 @@ of the game's languages (the editor's own labels stay English).
   the template has them, rules you removed stay removed, rules you changed keep your
   version, untouched ones take the new one (the old template goes to the backups, each
   update is logged in `templates/.generated/updates.log`). Top to bottom it has: the
-  always-show personal/variant affix rule; the class item hide rules; a **BiS section** (per slot the slot's item type
+  always-show personal/variant affix rule; a **shatter section** (`[shatter]`: magic and rare
+  gear - idols can't be shattered, exalted items have the exalted rules - with rare-roll
+  affixes: roll weighting <= 0.15, i.e. Hybrid Health and the "X and minion X penetration"
+  ones; plus one rule per class for its class-specific affixes at T3+; above the class hide
+  rule, since a class-specific affix gives an item its class's requirement); the class item
+  hide rule; a **BiS section** (per slot the slot's item type
   with no bases picked and no affixes, switched off, plus one weapon rule without an item
   type - generic placeholders the [Best in slot tab](#best-in-slot-generator) replaces; own
   colour, emphasis and beam, `[bis]`); the exalted rules (`[[exalted_rule]]`: **all T8 items** first - any gear
   affix at tier 8, no item-type condition - then double T7, T7+T6, single T7 on uncorrupted
   items, and double T7 on corrupted ones), a **show-all-corrupted** rule (normal to exalted
   items that dropped corrupted, whatever their affixes: some builds want the corrupted
-  affixes themselves; `[starter] corrupted`) and a show-all-legendary rule; a **shatter section**
-  (`[shatter]`: magic/rare/exalted gear - idols can't be shattered - with rare-roll affixes:
-  roll weighting <= 0.15, i.e. Hybrid Health and the "X and minion X penetration" ones; plus
-  one rule per class for its class-specific affixes at T3+); the unique/set rules; and a rule
+  affixes themselves; `[starter] corrupted`) and a show-all-legendary rule; the unique/set rules; and a rule
   hiding everything else at the bottom. That last one never hides shards, runes, glyphs or
   keys: the game only applies rules made of non-equipment conditions to those.
-  In the dialog you pick the class (it switches on that class's hide and shatter rules,
+  In the dialog you pick the class (it sets the class hide rule to hide every other class
+  and switches on that class's shatter rule,
   becomes the generators' class and sets the filter's class icon - or pick any of the game's
   filter icons and icon colours there; the icon button next to the filter name changes them
   for the open filter). Off by default, so a new filter is a blank slate: adding the BiS
@@ -262,9 +277,10 @@ of the game's languages (the editor's own labels stay English).
   *Save as* sets the in-game name too: the game lists filters by that name, not by the file
   name.
 - **↻ [A] rules** (Rules tab) regenerates the open filter's `[A]` rules - unique/set
-  groups, class hide rules, always-show affix rules - from `config.toml` and the current
+  groups, the class hide rule, always-show affix rules - from `config.toml` and the current
   game data (e.g. new uniques after a patch), the way `build` does. Rules keep their on/off
-  state and filled build slots stay as they are; Ctrl+Z undoes it.
+  state, the class hide rule its ticked classes, and filled build slots stay as they are;
+  Ctrl+Z undoes it.
 - **Free up rules…** (Rules tab) makes room under the game's 200-rule limit. It shows what
   each option would remove, then removes it on a click (Ctrl+Z undoes it):
   - *section separators*: switched-off rules without conditions, which only decorate the list;
@@ -396,9 +412,8 @@ and whether one or both of an idol's two affixes must be among them; each kind w
 becomes one show rule (item type + its bases + affix condition), optionally followed by a
 rule hiding every other non-unique idol. Picks can be copied to another kind (e.g. a size's
 Omen version) or to every other kind at once - each takes the picks that can roll on it. The section's rules start with `[I] `: applying again replaces them, and
-opening a filter loads its picks back from them. Without a section yet it goes right after
-the shatter section, before the uniques (else under a separator named like IDOL, else at the
-top of the filter); the tab warns about rules above
+opening a filter loads its picks back from them. Without a section yet it goes under a
+separator named like IDOL, else right before the uniques, else at the top of the filter; the tab warns about rules above
 it that catch idols by type alone. Heretical (enchanted) idols are crafted from class idols
 and are separate bases, so each class idol's rule lists its heretical version too: one
 thrown out of the inventory is shown like the idol it was made from.
