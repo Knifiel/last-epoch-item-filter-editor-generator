@@ -3,6 +3,13 @@
 Edit Last Epoch loot filters outside the game, and generate rules for uniques, leveling, idols,
 BiS items, shattering and more - straight from your own game installation.
 
+### What's new in v0.4.1
+
+- **Sort bases by class**: in the Item Type condition, the bases list of a type with class bases
+  (helmets, body armours, relics, class idols) has a *Sort: by level / by class* switch. *By class*
+  lists the bases with no class requirement first, then each class's bases under its name, each
+  group by level. The editor remembers the choice.
+
 ### What's new in v0.4.0
 
 - **The editor in your language.** The language menu now switches the whole editor - buttons,

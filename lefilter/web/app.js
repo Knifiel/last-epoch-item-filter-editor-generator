@@ -1489,7 +1489,18 @@ function subtypeEditor(rule, c) {
     const known = new Set(all.map((s) => s.id));
     const ruledOut = c.subtypes.filter((id) => known.has(id) && !subs.some((s) => s.id === id));
     const unknown = c.subtypes.filter((id) => !known.has(id));
-    const classNames = S.meta.enums.classes.filter((cl, i) => bits & (1 << i)).map(className).join(" / ");
+    const namesOf = (b) => S.meta.enums.classes.filter((cl, i) => b & (1 << i)).map(className).join(" / ");
+    const classNames = namesOf(bits);
+    // by level, or (when the listed bases differ in class requirement) under their class: no requirement first,
+    // then the classes in the game's order, each by level
+    const classSort = new Set(subs.map((s) => s.class)).size > 1;
+    const sort = classSort ? store.get("base-sort", "level") : "level";
+    const row = (s) => withBaseTip(h("label", { class: s.drops ? "" : "nodrop" },
+      h("input", { type: "checkbox", checked: c.subtypes.includes(s.id), onchange: () => mutate(() => {
+        const i = c.subtypes.indexOf(s.id);
+        if (i >= 0) c.subtypes.splice(i, 1); else c.subtypes.push(s.id);
+      }) }),
+      s.name, h("span", { class: "lvl" }, tx("lvl {n}", { n: s.level }))), c.types[0], s);
     put(wrap, h("div", { class: "group-label" }, bits ? tx("Bases of {type} for {classes} (none ticked = all)", { type: base?.name, classes: classNames })
       : tx("Bases of {type} (none ticked = all)", { type: base?.name })),
       bits ? h("p", { class: "hint" }, legendaryToo
@@ -1504,13 +1515,15 @@ function subtypeEditor(rule, c) {
         "{n} ticked bases aren't in this game data ({ids}): kept as they are.", { ids: `#${unknown.join(", #")}` })) : null,
       h("div", { class: "row" },
         h("button", { disabled: !subs.some((s) => s.drops), onclick: () => mutate(() => { c.subtypes = subs.filter((s) => s.drops).map((s) => s.id); }, re) }, tx("All droppable")),
-        h("button", { onclick: () => mutate(() => { c.subtypes = []; }, re) }, tx("Clear"))),
-      h("div", { class: "bases" }, subs.map((s) => withBaseTip(h("label", { class: s.drops ? "" : "nodrop" },
-        h("input", { type: "checkbox", checked: c.subtypes.includes(s.id), onchange: () => mutate(() => {
-          const i = c.subtypes.indexOf(s.id);
-          if (i >= 0) c.subtypes.splice(i, 1); else c.subtypes.push(s.id);
-        }) }),
-        s.name, h("span", { class: "lvl" }, tx("lvl {n}", { n: s.level }))), c.types[0], s))));
+        h("button", { onclick: () => mutate(() => { c.subtypes = []; }, re) }, tx("Clear")),
+        classSort ? h("span", { class: "base-sort" }, h("span", { class: "hint" }, tx("Sort")),
+          h("div", { class: "seg" }, [["level", tk("by level")], ["class", tk("by class")]].map(([k, label]) =>
+            h("button", { class: sort === k ? "on" : "", onclick: () => { store.set("base-sort", k); renderEditor(); } }, tx(label))))) : null),
+      sort === "class"
+        ? [...new Set(subs.map((s) => s.class))].sort((a, b) => a - b).map((cls) => [
+          h("div", { class: "base-class" }, cls ? namesOf(cls) : tx("All classes")),
+          h("div", { class: "bases" }, subs.filter((s) => s.class === cls).map(row))])
+        : h("div", { class: "bases" }, subs.map(row)));
   } else if (c.types.length > 1) {
     put(wrap, h("p", { class: "hint" }, tx("Bases can only be picked with exactly one item type (with several, the game ignores bases).")));
   }
