@@ -383,7 +383,7 @@ def test_first_update_of_a_v020_template_gets_this_versions_defaults(tmp_path, m
     at = next(i for i, r in enumerate(rest) if "SHATTER" in r["name"])
     doc["rules"] = rest[:at] + hides + rest[at:]           # ...and the class hide rules above the shatter section
     by = {r["name"]: r for r in doc["rules"]}
-    assert "[A] WEAVER - 17+ WW" in by and "SHOW ALL CORRUPTED ITEMS" not in by
+    assert "[A] WEAVER - 17+ WW" in by and "SHOW ALL CORRUPTED ITEMS" not in by and "SHOW 4xT5 RARES" not in by
     by["[A] WEAVER - 0-16 WW"]["color"] = 5                 # the user recoloured one
     write_filter(path, render_filter(doc))
     monkeypatch.setattr(starter, "__version__", "0.3.0")
@@ -395,6 +395,7 @@ def test_first_update_of_a_v020_template_gets_this_versions_defaults(tmp_path, m
     assert set(res["dropped"]) == {"[A] WEAVER - 17+ WW", "[A] WEAVER - 0-16 WW", *[r["name"] for r in hides]}
     assert names.index("EXALTED - CORRUPTED DOUBLE T7") == names.index("EXALTED - SINGLE T7") + 1
     assert names.index("SHOW ALL CORRUPTED ITEMS") == names.index("EXALTED - CORRUPTED DOUBLE T7") + 1
+    assert names.index("SHOW 4xT5 RARES") == names.index("LEGENDARY") + 1
     assert names[1] == "------ SHATTER AFFIXES ------"                       # moved to the top...
     assert names[8] == HIDE and not [n for n in names if "Hide non-" in n]   # ...the one class hide rule under it
 
@@ -441,7 +442,7 @@ def test_restore_the_exalted_section_from_the_template():
     names = [r["name"] for r in template["rules"]]
     start = names.index(header)
     section = names[start:names.index("[A] --- UNIQUES ---")]
-    assert section[-3:] == ["SINGLE T7", "SHOW ALL CORRUPTED ITEMS", "LEGENDARY"]
+    assert section[-4:] == ["SINGLE T7", "SHOW ALL CORRUPTED ITEMS", "LEGENDARY", "SHOW 4xT5 RARES"]
     # a filter from before the corrupted rules, with a rule of the user's in the section and a recoloured one
     old = [dict(r) for r in template["rules"] if r["name"] != "SHOW ALL CORRUPTED ITEMS"]
     mine = new_rule("My exalted thing", conditions=[{"type": "RarityCondition", "rarity": ["EXALTED"]}])
@@ -451,7 +452,7 @@ def test_restore_the_exalted_section_from_the_template():
     assert res["found"] and not res["matches"]
     added = [r["name"] for r in res["add"]["rules"]]
     assert res["add"]["added"] == ["SHOW ALL CORRUPTED ITEMS"] and res["add"]["removed"] == []
-    assert added[added.index("SHOW ALL CORRUPTED ITEMS") - 1] == section[-3]       # after the rule it follows
+    assert added[added.index("SHOW ALL CORRUPTED ITEMS") - 1] == section[-4]       # after the rule it follows
     assert "My exalted thing" in added and next(r for r in res["add"]["rules"] if r["name"] == "ALL T8")["color"] == 3
     replaced = res["replace"]["rules"]
     assert [r["name"] for r in replaced][start:start + len(section)] == section and "My exalted thing" not in [r["name"] for r in replaced]
@@ -578,3 +579,57 @@ def test_the_unique_idols_show_all_rule_is_off_by_default_now():
     from lefilter.rules import released_defaults
     now = {**group, "rules": [{"label": "show all", "enabled": False}]}
     assert next(g for g in released_defaults({"group": [now]})["group"] if g["name"] == "UNIQUE IDOLS")["rules"] == group["rules"]
+
+
+# --- v0.4.3: rares with four T5+ affixes, below the show-all rules ---------------------------------
+RARES = "SHOW 4xT5 RARES"
+
+
+def test_4xt5_rares_rule_at_the_bottom_of_the_show_all_rules():
+    rules = make_template(primordial_config(NEW_GROUPS), PRIMORDIAL_DATA)["rules"]
+    names = [r["name"] for r in rules]
+    assert names[names.index("LEGENDARY") + 1:names.index(RARES) + 1] == [NEW_COC, RARES]
+    rule = rules[names.index(RARES)]
+    assert rule["enabled"] and rule["type"] == "SHOW" and rule["color"] == 4
+    by = {c["type"]: c for c in rule["conditions"]}
+    assert by["RarityCondition"]["rarity"] == ["RARE", "EXALTED"]
+    assert by["AffixCondition"]["affixes"] == gear_affix_ids(FULL["affixes"])           # every gear affix
+    assert (by["AffixCondition"]["comparsion"], by["AffixCondition"]["comparsion_value"],
+            by["AffixCondition"]["min_on_same_item"], by["AffixCondition"]["combined_comparsion"]) == ("MORE_OR_EQUAL", 5, 4, "ANY")
+
+    def shown(*tiers, rarity="RARE"):   # Increased Physical Damage, Added Health, Hybrid Health, Phys Penetration and Minion ...
+        item = {"type": "HELMET", "subtype": 0, "rarity": rarity,
+                "affixes": [{"id": a, "tier": t} for a, t in zip((30, 25, 36, 719), tiers)]}
+        return evaluate([rule], item, 80, CTX)["index"] == 0
+    assert shown(5, 5, 5, 5) and shown(5, 7, 6, 5) and shown(6, 5, 5, 5, rarity="EXALTED")
+    assert not shown(5, 5, 5, 4) and not shown(7, 7, 7) and not shown(5, 5, 5, 5, rarity="MAGIC")
+    assert RARES not in [r["name"] for r in build_starter(FULL_CONFIG, FULL, {"parts": ["legendary"]})["rules"]]   # exalted part's
+    off = {**FULL_CONFIG, "starter": {**FULL_CONFIG["starter"], "rares_4xt5": False}}
+    assert RARES not in [r["name"] for r in make_template(off, FULL)["rules"]]
+    recoloured = {**FULL_CONFIG, "starter": {**FULL_CONFIG["starter"], "rares_4xt5": {"color": 9, "emphasized": True}}}
+    rule = next(r for r in make_template(recoloured, FULL)["rules"] if r["name"] == RARES)
+    assert rule["color"] == 9 and rule["emphasized"]
+
+
+def test_a_v042_template_update_adds_the_4xt5_rares_rule_below_cocooned(tmp_path, monkeypatch):
+    from lefilter import starter
+    from lefilter.filterdoc import parse_filter
+    path = tmp_path / "templates" / "New filter.xml"
+    config = primordial_config(NEW_GROUPS)
+    monkeypatch.setattr(starter, "__version__", "0.4.2")   # what it generated: no 4xT5 rule
+    starter.write_generated_template(path, make_template({**config, "starter": {**config["starter"], "rares_4xt5": False}},
+                                                         PRIMORDIAL_DATA))
+    monkeypatch.setattr(starter, "__version__", "0.4.3")
+    res = starter.sync_template(path, config, PRIMORDIAL_DATA)
+    names = [r["name"] for r in parse_filter(path.read_bytes().decode("utf-8-sig"))["rules"]]
+    assert res["added"] == [RARES] and names == [r["name"] for r in make_template(config, PRIMORDIAL_DATA)["rules"]]
+    assert names[names.index(NEW_COC) + 1] == RARES
+
+
+def test_a_new_filter_with_endgame_rares_only():
+    template = make_template(FULL_CONFIG, FULL)
+    build = {**BUILD, "endgame_only": True}
+    doc = new_from_template(FULL_CONFIG, FULL, template, {"add_leveling": True, "leveling": build})
+    names = [r["name"] for r in doc["rules"]]
+    assert not [n for n in names if n.startswith("[L] ")] and [n for n in names if n.startswith("[E] ")]
+    assert names[names.index(RARES) + 1].startswith("[E] ")                # right below the exalted & legendary section

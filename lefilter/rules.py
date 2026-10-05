@@ -103,11 +103,12 @@ def upgrade_config(config: dict) -> dict:
 
 def released_defaults(config: dict) -> dict:
     """The config as earlier versions used it: UPDATED_* settings at either default get the old
-    one, DROPPED_GROUPS are back, no [starter] corrupted or cocooned rule (they had none) and shatter
-    rules for exalted items too.
+    one, DROPPED_GROUPS are back, no [starter] corrupted, cocooned or rares_4xt5 rule (they had none) and
+    shatter rules for exalted items too.
     (Their per-class hide rules: see starter.legacy_template_rules.)"""
     out = _swap_defaults(config, False)
-    out["starter"] = {**out.get("starter", {}), "corrupted": False, "cocooned": False}   # their cocooned rule: an [A] group's
+    out["starter"] = {**out.get("starter", {}), "corrupted": False, "cocooned": False,   # their cocooned rule: an [A] group's
+                      "rares_4xt5": False}
     out["class_hide"] = {"name": UPDATED_CLASS_HIDE_NAME[0], **out.get("class_hide", {})}
     out["shatter"] = {**out.get("shatter", {}), "rarity": ["MAGIC", "RARE", "EXALTED"]}   # exalted too, before v0.3.1
     return out
@@ -190,10 +191,8 @@ class Rule:
     Level condition (min, max); classes a Class Requirement condition (items only those
     classes can use). affix_tier / affix_total make the Affix condition count only affixes
     of at least that tier / need their tiers to add up to at least that (the game adds up only
-    the affixes that pass the tier check); affix_sum adds a second Affix condition: affix_min of
-    the same affixes at any tier, their tiers adding up to at least that. corruption adds a
-    Corruption condition ("OnlyCorrupted" / "OnlyUncorrupted"). A rule with none of them is
-    a section separator.
+    the affixes that pass the tier check); corruption adds a Corruption condition ("OnlyCorrupted" /
+    "OnlyUncorrupted"). A rule with none of them is a section separator.
     """
     name: str
     group: str
@@ -208,7 +207,6 @@ class Rule:
     classes: list[str] | None = None
     affix_tier: int | None = None
     affix_total: int | None = None
-    affix_sum: int | None = None
     corruption: str | None = None
 
     @property

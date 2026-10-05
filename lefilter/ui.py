@@ -223,9 +223,11 @@ class Api:
             "warnings": plan.warnings,
             "prefix": opts.rule_prefix,
             "endgame_prefix": opts.endgame_prefix,
+            "endgame_only": opts.endgame_only,
         }
         if "rules" in body:
-            merged, removed, at = place_leveling(body["rules"], doc_infos, new, endgame, opts.rule_prefix, opts.endgame_prefix)
+            merged, removed, at = place_leveling(body["rules"], doc_infos, None if opts.endgame_only else new, endgame,
+                                                 opts.rule_prefix, opts.endgame_prefix)
             result.update(merged=merged, removed=removed, position=at)
         return result
 

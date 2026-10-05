@@ -42,6 +42,7 @@
  "Affixes ({n} picked)": "词缀（已选 {n} 条）",
  "Affixes each kind of gear takes, and where they roll": "各类装备选用的词缀及其出现位置",
  "Ailment chance": "异常状态几率",
+ "Stun": "晕眩",
  "All": "全部",
  "All Attributes - two-handers only": "所有属性——仅限双手武器",
  "All Common": "所有普通",
@@ -138,7 +139,8 @@
  "Duplicate the selected rule": "复制所选规则",
  "Each affix tier": "每条词缀阶级",
  "Each goes in after the rule it follows in the template; the rules already here stay as they are.": "每条规则会放在模板中它所跟随的那条规则之后；已有的规则保持不变。",
- "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll. Good bases get their own rule, on until the cap (then the BiS rules take over).": "下方每类装备各自选择词缀。一个开关会加入该装备上可出现的、名称中含有该开关名的所有普通装备词缀（例如物理：“……物理伤害”“物理穿透”）；在该装备上没有可出现词缀的开关不会显示。将鼠标悬停在开关上（触摸屏：长按）可查看其词缀出现在哪里。优质基底有单独的规则，持续生效直至上限等级（之后由 BiS 规则接管）。",
+ "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll.": "下方每类装备各自选择词缀。一个开关会加入该装备上可出现的、名称中含有该开关名的所有普通装备词缀（例如物理：“……物理伤害”“物理穿透”）；在该装备上没有可出现词缀的开关不会显示。将鼠标悬停在开关上（触摸屏：长按）可查看其词缀出现在哪里。",
+ "Good bases get their own rule, on until the cap (then the BiS rules take over).": "优质基底有单独的规则，持续生效直至上限等级（之后由 BiS 规则接管）。",
  "Each ruleset makes a rule of its own, and an item shows when any of them matches: use several for separate combinations (A + B, or C + D) that one list would mix (A + C).": "每个规则组生成一条独立的规则，物品只要匹配其中任意一组就会显示：想把单个列表会混在一起的组合（A + C）分开成（A + B 或 C + D）时，就使用多个规则组。",
  "Each type's endgame rare rule takes only the ticked bases (none ticked: any base). Class bases count only for the chosen class.": "每种类型的终局稀有规则只包含勾选的基底（未勾选：任意基底）。职业基底仅对所选职业有效。",
  "Each type's ticked bases get their own rule above the rest - still with a build affix, but on until the cap. Class bases count only for the chosen class.": "每种类型中勾选的基底会在其余规则之上获得单独的规则——仍需一条构筑词缀，但持续生效直至上限等级。职业基底仅对所选职业有效。",
@@ -147,7 +149,9 @@
  "Empty: add uniques here or in-game.": "空：在此处或游戏内添加暗金。",
  "Enabled": "启用",
  "Endgame bases": "终局基底",
- "Endgame rare: two T5+ build affixes, tiers adding up to 14+": "终局稀有：两条 T5+ 构筑词缀，阶级总和 14+",
+ "Endgame rares only": "仅终局稀有",
+ "No leveling section: only the endgame rares section is made. A leveling section the filter already has stays as it is.": "不生成练级部分：只生成终局稀有部分。过滤器中已有的练级部分保持不变。",
+ "Endgame rare: two T5+ build affixes": "终局稀有：两条 T5+ 构筑词缀",
  "Endgame rares: their own section, right below the exalted & legendary rules": "终局稀有：独立部分，紧接在崇高与传奇规则下方",
  "Every other idol altar": "其余所有神像祭坛",
  "Every rule of the template's section is here; some differ from the template's - replacing takes the template's.": "模板该部分的每条规则都已存在；有些与模板不同——替换会采用模板的版本。",
@@ -657,6 +661,9 @@
  },
  "Leveling section applied: {n} rule at position {at}. Save to keep it.|Leveling section applied: {n} rules at position {at}. Save to keep it.": {
   "other": "已应用练级部分：{n} 条规则，位于第 {at} 位。保存以保留更改。"
+ },
+ "Endgame rares applied: {n} rule at position {at}. Save to keep it.|Endgame rares applied: {n} rules at position {at}. Save to keep it.": {
+  "other": "已应用终局稀有：{n} 条规则，位于第 {at} 位。保存以保留更改。"
  },
  "New filter with {n} rule - save it to keep it.|New filter with {n} rules - save it to keep it.": {
   "other": "新过滤器，共 {n} 条规则——保存即可保留。"

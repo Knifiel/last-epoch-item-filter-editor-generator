@@ -3,9 +3,10 @@
 Toggles pick affixes by name: a damage type takes every ordinary gear affix whose name
 contains "<type> damage" / "<type> penetration", a build focus its keyword ("minion",
 "throwing", ...), an attribute its own affix (All Attributes, two-handers only, is its own
-toggle), a defence toggle its picker category. Each kind of gear - weapons, off-hands, armour, jewelry
-and belts - has its own toggles (SECTIONS), and its rules list the picks that can roll on
-it: Strength on armour, rings and relics. Weapons leave out
+toggle), a defence toggle its picker category. Stun affixes (chance, avoidance) are rarely worth
+it: only the stun toggle takes them - but Health and Stun Avoidance is a health affix. Each kind
+of gear - weapons, off-hands, armour, jewelry and belts - has its own toggles (SECTIONS), and its
+rules list the picks that can roll on it: Strength on armour, rings and relics. Weapons leave out
 defensive affixes (health on kill, leech, dodge ...) unless asked. With a class chosen, its
 class-specific affixes (helmets, body armours, relics) can also be picked one by one; they
 count wherever they roll. No set, corrupted, experimental, personal or idol affixes;
@@ -24,8 +25,8 @@ Build affixes count from a tier that grows with the character level (`tier_step`
 T2+ from level 20, T3+ from 30, T4+ from 40), so rules needing them are split where it changes.
 
 Next to the section, in their own (ENDGAME_PLACEMENT, right below the exalted rules, own prefix):
-per slot in use an endgame rares rule - rares with two T5+ build affixes whose build affix tiers
-add up to 14+, on the slot's endgame bases (none picked: any base), at any level.
+per slot in use an endgame rares rule - rares with two T5+ build affixes, on the slot's endgame
+bases (none picked: any base), at any level. endgame_only makes just those (no leveling section).
 
 Ordering convention: index 0 is the TOP of the in-game list.
 """
@@ -77,9 +78,10 @@ TOGGLES = (
     Toggle("crit", "Critical strike", "focus", ("crit",), exclude=("avoidance", "reduced bonus damage")),
     Toggle("dot", "Damage over time", "focus", ("damage over time",)),
     Toggle("ailments", "Ailment chance", "focus", categories=("Ailments",), exclude=("attackers",)),
+    Toggle("stun", "Stun", "focus", ("stun",), exclude=("health",)),   # stun chance and avoidance (see _matches)
     *(_attribute(a) for a in ATTRIBUTES),
     Toggle("all_attributes", "All Attributes - two-handers only", "attributes", ("all attributes",)),
-    Toggle("health", "Health", "defence", categories=("Health",)),
+    Toggle("health", "Health", "defence", ("health and stun",), categories=("Health",)),
     Toggle("resistances", "Resistances", "defence", ("resistance",), categories=(), exclude=("minion",)),
     Toggle("armour", "Armour", "defence", ("armor",), exclude=("minion", "shred")),
     Toggle("endurance", "Endurance", "defence", ("endurance",), exclude=("minion",)),   # its own defence layer
@@ -129,13 +131,12 @@ STYLE_DEFAULTS = {
     "good_base": {"color": 15, "emphasized": True},      # any slot's good base, until the cap
     "endgame": {"color": 12, "emphasized": True},        # endgame rare, any level
 }
-# Endgame rares: rares with ENDGAME_MIN build affixes of tier ENDGAME_TIER+, all their build affixes'
-# tiers adding up to ENDGAME_TOTAL+ (T5 + T5 + T4).
-ENDGAME_TIER, ENDGAME_MIN, ENDGAME_TOTAL = 5, 2, 14
+# Endgame rares: rares with ENDGAME_MIN build affixes of tier ENDGAME_TIER+.
+ENDGAME_TIER, ENDGAME_MIN = 5, 2
 OPTION_KEYS = {"enabled", "damage", "focus", "attributes", "defence", "weapons", "offhands", "armour", "jewelry",
                *(key for key, _ in SECTIONS.values()), "character_class", "class_affixes", "step", "cap", "weapon_mode", "rarity", "gear_min_affixes",
                "single_affix_until", "good_bases", "rule_prefix", "header", "style", "tier_step", "max_tier",
-               "endgame_bases", "endgame_prefix", "endgame_header"}
+               "endgame_bases", "endgame_prefix", "endgame_header", "endgame_only"}
 
 
 @dataclass
@@ -169,6 +170,7 @@ class LevelingOptions:
     tier_step: int = 10
     max_tier: int = 4
     endgame_bases: dict = field(default_factory=dict)      # item type -> base names its endgame rule takes (none: any)
+    endgame_only: bool = False                             # just the endgame rares: no leveling section
     rule_prefix: str = "[L] "
     header: str = "------- LEVELING (auto) -------"
     endgame_prefix: str = "[E] "                           # the endgame rares section's own prefix and header
@@ -282,6 +284,8 @@ def parse_options(table: dict, bases: list[dict]) -> LevelingOptions:
         raise ConfigError(f"[leveling] rarity: known rarities are {', '.join(RARITIES)}")
     if not 1 <= opts.gear_min_affixes <= 4:
         raise ConfigError("[leveling] gear_min_affixes must be 1-4")
+    if not isinstance(opts.endgame_only, bool):
+        raise ConfigError("[leveling] endgame_only must be true or false")
     if not 0 <= opts.tier_step <= 100 or not 1 <= opts.max_tier <= 7:
         raise ConfigError("[leveling] tier_step must be 0-100 (0 = any tier) and max_tier 1-7")
     if not opts.endgame_prefix or (opts.rule_prefix and (opts.rule_prefix.startswith(opts.endgame_prefix)
@@ -319,6 +323,8 @@ def _names(a: dict) -> set[str]:
 
 def _matches(t: Toggle, a: dict) -> bool:
     name = _phrase_name(a)
+    if t.key != "stun" and "stun" in name and "health" not in name:   # stun affixes: the stun toggle's alone
+        return False
     hit = any(p in name for p in t.phrases) or a["category"] in t.categories
     return hit and not any(x in name for x in t.exclude)
 
@@ -532,6 +538,10 @@ def plan_leveling(opts: LevelingOptions, data: dict) -> LevelingPlan:
     rule_affixes: dict[str, list[dict]] = {}
     slots: dict[str, list[dict] | None] = {}   # item type in use -> build affixes its items need (None: any)
 
+    def lev_warning(text: str) -> None:   # about the leveling section only
+        if not opts.endgame_only:
+            warnings.append(text)
+
     def add(rule: Rule, affixes: list[dict] | None = None) -> None:
         rules.append(rule)
         if affixes is not None:
@@ -549,11 +559,11 @@ def plan_leveling(opts: LevelingOptions, data: dict) -> LevelingPlan:
         eligible = rolling_on(pools[SECTION_OF[t]], (t,))
         wins = windows[t] = level_windows(base["subtypes"], opts.step, opts.cap, opts.character_class)
         if not wins:
-            warnings.append(f"{base['name']}: no droppable bases below level {opts.cap}")
+            lev_warning(f"{base['name']}: no droppable bases below level {opts.cap}")
         mode = opts.weapon_mode
         if mode != "bases" and not eligible:
             if mode == "require":
-                warnings.append(f"{base['name']}: none of the selected affixes roll on it; showing bases only")
+                lev_warning(f"{base['name']}: none of the selected affixes roll on it; showing bases only")
             mode = "bases"
         slots[t] = eligible if mode != "bases" else None
         for w in wins:
@@ -602,11 +612,11 @@ def plan_leveling(opts: LevelingOptions, data: dict) -> LevelingPlan:
     for t, need in slots.items():
         good, unknown = good_subtypes(bases[t], opts.good_bases.get(t, []), opts.character_class)
         if unknown:
-            warnings.append(f"good_bases: {bases[t]['name']} has no bases named {', '.join(unknown)}")
+            lev_warning(f"good_bases: {bases[t]['name']} has no bases named {', '.join(unknown)}")
         common = dict(group="leveling", spec=opts.spec("good_base"), unique_ids=None, rarity=rarity, item_types=[t],
                       sub_types=good)
         if good and need == []:
-            warnings.append(f"{bases[t]['name']} good bases: none of the build's affixes roll on it; no rule generated")
+            lev_warning(f"{bases[t]['name']} good bases: none of the build's affixes roll on it; no rule generated")
         elif good and need:
             tiered(f"{p}{bases[t]['name']} good bases build affix", (0, last), need, good_rules,
                    affix_ids=[a["id"] for a in need], **common)
@@ -614,9 +624,7 @@ def plan_leveling(opts: LevelingOptions, data: dict) -> LevelingPlan:
             good_rules.append(Rule(name=f"{p}{bases[t]['name']} good bases 0-{last}", char_level=(0, last), **common))
     rules[:0] = good_rules
 
-    # Endgame rares, per slot in use: its build affixes (in `bases` mode too), two at T5+ and all of them
-    # adding up to 14+. The game adds up only the affixes that pass a condition's tier check, so the total
-    # is a second Affix condition (a rule's Affix conditions must all match). No character level.
+    # Endgame rares, per slot in use: its build affixes (in `bases` mode too), two at T5+. No character level.
     endgame: list[Rule] = []
     for t in slots:
         need = rolling_on(pools[SECTION_OF[t]], (t,))
@@ -630,7 +638,7 @@ def plan_leveling(opts: LevelingOptions, data: dict) -> LevelingPlan:
         endgame.append(Rule(name=f"{opts.endgame_prefix}{bases[t]['name']} endgame rare", group="endgame",
                             spec=opts.spec("endgame"), unique_ids=None, rarity="RARE EXALTED", item_types=[t],
                             sub_types=endgame_subs, affix_ids=[a["id"] for a in need], affix_min=ENDGAME_MIN,
-                            affix_tier=ENDGAME_TIER, affix_sum=ENDGAME_TOTAL))
+                            affix_tier=ENDGAME_TIER))
         rule_affixes[endgame[-1].name] = need
     if endgame and opts.endgame_header:
         endgame.insert(0, Rule(name=f"{opts.endgame_prefix}{opts.endgame_header}", group="endgame",
@@ -659,6 +667,9 @@ def plan_leveling(opts: LevelingOptions, data: dict) -> LevelingPlan:
             if not rolling_on([a], slots):
                 warnings.append(f"{a['name']}: rolls only on {where([a], GEAR_TYPES)}, none of which is picked")
 
+    if opts.endgame_only:   # the endgame rares alone: no leveling section (one already in a filter stays as it is)
+        rules, windows = [], {}
+        rule_affixes = {n: a for n, a in rule_affixes.items() if n.startswith(opts.endgame_prefix)}
     if rules and opts.header:
         rules.insert(0, Rule(name=f"{p}{opts.header}", group="leveling", spec=RuleSpec(action="hide", enabled=False),
                              unique_ids=None, rarity=None))

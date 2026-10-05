@@ -41,8 +41,7 @@ def _condition_bits(rule) -> str:
     if rule.rarity:
         bits.append(rule.rarity)
     if rule.affix_ids:
-        bits.append(f"{rule.affix_min}+ of {len(rule.affix_ids)} affixes" + (f" T{rule.affix_tier}+" if rule.affix_tier else "")
-                    + (f", tiers adding up to {rule.affix_sum}+" if rule.affix_sum else ""))
+        bits.append(f"{rule.affix_min}+ of {len(rule.affix_ids)} affixes" + (f" T{rule.affix_tier}+" if rule.affix_tier else ""))
     if rule.char_level:
         bits.append(f"character level {rule.char_level[0]}-{rule.char_level[1]}")
     return "; ".join(bits)

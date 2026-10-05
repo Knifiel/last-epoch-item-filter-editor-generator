@@ -102,7 +102,7 @@ emphasized = true
 # templates/New filter.xml is what the editor's "New" starts from (and `build`'s base). It is
 # generated from these parts, top to bottom: the [[affix_rule]]s, the shatter section, the
 # [class_hide] rule, the BiS section, the exalted rules plus a show-all-corrupted, a
-# show-all-legendary and a show-all-cocooned rule under one header, the unique / set groups, and a bottom rule hiding everything else (it
+# show-all-legendary, a show-all-cocooned and a 4xT5 rares rule under one header, the unique / set groups, and a bottom rule hiding everything else (it
 # never hides shards, runes, glyphs or keys: the game only applies rules made of non-equipment
 # conditions to those). Edit the template in the editor; "Rebuild template" regenerates it
 # from here. BiS / exalted / corrupted / legendary / shatter / hide rules get no rule_prefix:
@@ -117,6 +117,9 @@ legendary = { name = "SHOW ALL LEGENDARY ITEMS", color = 7, emphasized = true }
 # Below it: every cocooned item - a box holding a random unique of its item type, so no unique group
 # lists them. cocooned = false leaves it out.
 cocooned = { name = "SHOW ALL COCOONED ITEMS", color = 1 }
+# At the bottom of those: rare and exalted items with four affixes at T5+, whatever they are.
+# rares_4xt5 = false leaves it out.
+rares_4xt5 = { name = "SHOW 4xT5 RARES", color = 4 }
 hide_rest = { name = "HIDE EVERYTHING ELSE" }
 
 # BiS section (above the exalted rules, so it decides first): the template's generic BiS
@@ -401,9 +404,10 @@ header = "------- LEVELING (auto) -------"
 # toggle its category. Each kind of gear only takes the picked affixes that can roll on it
 # (Strength: armour, rings, relics; all_attributes, All Attributes: two-handed weapons only).
 # Weapons leave out defensive affixes (health on kill / hit, leech, dodge, mana ...) unless
-# weapon_affixes has defensive = true.
+# weapon_affixes has defensive = true. Stun affixes (stun chance, stun avoidance) are rarely worth
+# it: only stun takes them (Health and Stun Avoidance counts as health).
 #   damage:     physical, fire, cold, lightning, void, necrotic, poison
-#   focus:      melee, spell, throwing, bow, minion, crit, dot, ailments
+#   focus:      melee, spell, throwing, bow, minion, crit, dot, ailments, stun
 #   attributes: strength, dexterity, intelligence, attunement, vitality, all_attributes
 #   defence:    health, resistances, armour, endurance, dodge, block, ward, mana, movement, sustain, cooldown
 # A kind of gear can also leave out single affixes its toggles (or class_affixes) give it:
@@ -446,11 +450,13 @@ jewelry = true
 # Types left out keep the defaults below ([] = none): the jewelry and belt bases Raxxanterax's
 # S5 filter picks for the campaign, mostly resistance implicits. E.g. TWO_HANDED_SWORD = ["Claymore"].
 good_bases = { BELT = ["Spidersilk Sash"], AMULET = ["Bone Amulet", "Gold Amulet"], RING = ["Gold Ring"], RELIC = ["Spirit Catcher", "Scrying Eye", "Rune Quill", "Argent Crest", "Putrid Souls", "Ancient Coins", "Ruby Dice", "Antidote Vial"] }
-# Endgame rares: per slot in use a rule for rares with two T5+ build affixes whose build affix tiers add
-# up to 14+ (T5 + T5 + T4), at any level, in a section of their own right below the exalted rules
-# (endgame_prefix marks it, endgame_header heads it). endgame_bases: the bases each type's rule takes,
-# by item type like good_bases; types left out take any base. E.g. HELMET = ["Gladiator Helmet"].
+# Endgame rares: per slot in use a rule for rares with two T5+ build affixes, at any level, in a
+# section of their own right below the exalted rules (endgame_prefix marks it, endgame_header heads
+# it). endgame_bases: the bases each type's rule takes, by item type like good_bases; types left out
+# take any base. E.g. HELMET = ["Gladiator Helmet"]. endgame_only = true makes only those, no leveling
+# section (one already in a filter stays as it is).
 endgame_bases = {}
+endgame_only = false
 endgame_prefix = "[E] "
 endgame_header = "------ ENDGAME RARES - disable when not needed ------"
 rarity = ["MAGIC", "RARE", "EXALTED"]

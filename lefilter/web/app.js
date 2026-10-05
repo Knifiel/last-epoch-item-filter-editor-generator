@@ -2270,7 +2270,7 @@ const STYLE_KINDS = [
   ["gear_single", tk("Armour with one build affix (early levels)")],
   ["jewelry", tk("Jewelry / belt with a build affix")],
   ["good_base", tk("Good base, any slot (until the cap)")],
-  ["endgame", tk("Endgame rare: two T5+ build affixes, tiers adding up to 14+")],
+  ["endgame", tk("Endgame rare: two T5+ build affixes")],
 ];
 const STYLE_DEFAULTS = { weapon_affix: { color: 14, emphasized: true }, weapon_base: {}, gear: { color: 13, emphasized: true }, gear_single: {},
   jewelry: { color: 13 }, good_base: { color: 15, emphasized: true }, endgame: { color: 12, emphasized: true } };
@@ -2371,6 +2371,9 @@ async function runLeveling() {
   renderLevPreview();
 }
 
+/** Sentences one after the other: a space between them, none after a CJK full stop. */
+const joinSentences = (...parts) => parts.filter(Boolean).reduce((a, b) => a + (/[。！？]$/.test(a) ? "" : " ") + b);
+
 function renderLevForm() {
   const o = levOpts();
   const f = $("#lev-form");
@@ -2378,6 +2381,7 @@ function renderLevForm() {
   const toggleList = (arr, v) => { const i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); levChanged(); };
   const slots = levSlots(o);
   const typeChips = (types, list) => h("div", { class: "chips" }, types.map((t) => chipToggle(typeName(t), list.includes(t), () => toggleList(list, t))));
+  const lev = !o.endgame_only;   // the leveling section's own settings: hidden while only the endgame rares are made
 
   put(f, h("h3", {}, tx("Build")),
     h("div", { class: "row" }, h("label", {}, tx("Class"),
@@ -2385,7 +2389,11 @@ function renderLevForm() {
         h("option", { value: "" }, tx("any (no class-specific affixes)")),
         S.meta.enums.classes.map((c) => h("option", { value: c, selected: c === o.character_class }, className(c)))))),
     h("p", { class: "hint" }, tx("A class adds its class-specific affixes and bases, and drops affixes it can't roll.")),
-    h("div", { class: "row" },
+    h("div", { class: "row" }, h("label", {},
+      h("input", { type: "checkbox", checked: !!o.endgame_only, onchange: (e) => { o.endgame_only = e.target.checked; levChanged(); } }),
+      tx("Endgame rares only"))),
+    h("p", { class: "hint" }, tx("No leveling section: only the endgame rares section is made. A leveling section the filter already has stays as it is.")),
+    lev ? [h("div", { class: "row" },
       h("label", {}, tx("Weapon / off-hand windows of"), numInput(o.step, (v) => { o.step = v; levChanged(); }, { min: 1, max: 100, width: "56px" }), tx("levels;")),
       h("label", {}, tx("every rule off from level"), numInput(o.cap, (v) => { o.cap = v; levChanged(); }, { min: 1, max: 100, width: "56px" }))),
     h("div", { class: "row" }, h("label", {}, tx("Build affixes need one tier more every"),
@@ -2393,43 +2401,45 @@ function renderLevForm() {
       numInput(o.max_tier, (v) => { o.max_tier = v; levChanged(); }, { min: 1, max: 7, width: "52px" }))),
     h("p", { class: "hint" }, tx("The tier is the character level divided by that, T1 at first: every 10 levels up to 4 means T2+ from level 20, T3+ from 30, T4+ from 40. 0: any tier.")),
     h("div", { class: "group-label" }, tx("Rarity")),
-    h("div", { class: "chips" }, S.meta.enums.rarities.map((r) => chipToggle(capTx(r), o.rarity.includes(r), () => toggleList(o.rarity, r)))),
-    h("p", { class: "hint" }, tx("Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names "
+    h("div", { class: "chips" }, S.meta.enums.rarities.map((r) => chipToggle(capTx(r), o.rarity.includes(r), () => toggleList(o.rarity, r))))] : null,
+    h("p", { class: "hint" }, joinSentences(tx("Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names "
       + "(e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there "
-      + "aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll. Good bases get their own rule, on until the cap (then the BiS rules take over).")));
+      + "aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll."),
+    lev ? tx("Good bases get their own rule, on until the cap (then the BiS rules take over).") : "")));
 
   put(f, h("h3", {}, tx("Weapons")), typeChips(S.meta.enums.weapons, o.weapons),
-    h("div", { class: "row" }, h("label", {}, tx("Weapon and off-hand rules"),
+    lev ? [h("div", { class: "row" }, h("label", {}, tx("Weapon and off-hand rules"),
       h("select", { onchange: (e) => { o.weapon_mode = e.target.value; levChanged(); } },
         [["highlight", tk("highlight bases with a build affix, show the rest")], ["require", tk("only bases with a build affix")], ["bases", tk("all bases, ignore affixes")]]
           .map(([v, l]) => h("option", { value: v, selected: v === o.weapon_mode }, tx(l)))))),
-    h("p", { class: "hint" }, tx("Bases are batched by level requirement; each batch's rule is on until the next batch takes over.")),
-    sectionAffixes(o, "weapons", toggleList), classAffixPicker(o, "weapons", toggleList), goodBases(o, slots.weapons, toggleList),
+    h("p", { class: "hint" }, tx("Bases are batched by level requirement; each batch's rule is on until the next batch takes over."))] : null,
+    sectionAffixes(o, "weapons", toggleList), classAffixPicker(o, "weapons", toggleList), lev ? goodBases(o, slots.weapons, toggleList) : null,
     endgameBases(o, slots.weapons, toggleList));
 
   put(f, h("h3", {}, tx("Off-hands")), typeChips(S.meta.enums.offhands, o.offhands),
-    sectionAffixes(o, "offhands", toggleList), classAffixPicker(o, "offhands", toggleList), goodBases(o, slots.offhands, toggleList),
+    sectionAffixes(o, "offhands", toggleList), classAffixPicker(o, "offhands", toggleList), lev ? goodBases(o, slots.offhands, toggleList) : null,
     endgameBases(o, slots.offhands, toggleList));
 
   // armour and jewelry are one rule set each: the heading's checkbox switches it on
   const switchHead = (label, key) => h("h3", {}, h("label", { class: "section-toggle" },
     h("input", { type: "checkbox", checked: o[key], onchange: () => { o[key] = !o[key]; levChanged(); } }), tx(label)));
   put(f, switchHead("Armour", "armour"), o.armour ? [
-    h("div", { class: "row" },
+    lev ? h("div", { class: "row" },
       h("label", {}, tx("Shown with"), numInput(o.gear_min_affixes, (v) => { o.gear_min_affixes = v; levChanged(); }, { min: 1, max: 4, width: "52px" }), tx("+ build affixes,")),
-      h("label", {}, tx("with 1 below level"), numInput(o.single_affix_until, (v) => { o.single_affix_until = v; levChanged(); }, { min: 0, max: 100, width: "56px" }))),
-    sectionAffixes(o, "armour", toggleList), classAffixPicker(o, "armour", toggleList), goodBases(o, slots.armour, toggleList),
+      h("label", {}, tx("with 1 below level"), numInput(o.single_affix_until, (v) => { o.single_affix_until = v; levChanged(); }, { min: 0, max: 100, width: "56px" }))) : null,
+    sectionAffixes(o, "armour", toggleList), classAffixPicker(o, "armour", toggleList), lev ? goodBases(o, slots.armour, toggleList) : null,
     endgameBases(o, slots.armour, toggleList),
   ] : h("p", { class: "hint" }, tx("Off: no rules for helmets, body armours, boots and gloves.")));
 
   put(f, switchHead("Jewelry & belts", "jewelry"), o.jewelry ? [
-    h("p", { class: "hint" }, tx("Their base matters little and their best bases come early: each one with a build affix shows until the cap.")),
-    sectionAffixes(o, "jewelry", toggleList), classAffixPicker(o, "jewelry", toggleList), goodBases(o, slots.jewelry, toggleList),
+    lev ? h("p", { class: "hint" }, tx("Their base matters little and their best bases come early: each one with a build affix shows until the cap.")) : null,
+    sectionAffixes(o, "jewelry", toggleList), classAffixPicker(o, "jewelry", toggleList), lev ? goodBases(o, slots.jewelry, toggleList) : null,
     endgameBases(o, slots.jewelry, toggleList),
   ] : h("p", { class: "hint" }, tx("Off: no rules for amulets, rings, relics and belts.")));
 
   put(f, h("h3", {}, tx("Look")));
   for (const [kind, label] of STYLE_KINDS) {
+    if (!lev && kind !== "endgame") continue;
     const st = { ...STYLE_DEFAULTS[kind], ...(o.style?.[kind] || {}) };
     const setStyle = (patch) => {
       o.style = o.style || {};
@@ -2442,9 +2452,9 @@ function renderLevForm() {
         h("label", {}, h("input", { type: "checkbox", checked: !!st.emphasized, onchange: (e) => setStyle({ emphasized: e.target.checked }) }), tx("emphasized"))));
   }
   put(f, h("h3", {}, tx("Naming")),
-    h("div", { class: "row" }, h("label", {}, tx("Rule prefix"), h("input", { value: o.rule_prefix, size: 6, onchange: (e) => { o.rule_prefix = e.target.value; levChanged(); } })),
+    lev ? [h("div", { class: "row" }, h("label", {}, tx("Rule prefix"), h("input", { value: o.rule_prefix, size: 6, onchange: (e) => { o.rule_prefix = e.target.value; levChanged(); } })),
       h("label", {}, tx("Header"), h("input", { value: o.header, size: 30, onchange: (e) => { o.header = e.target.value; levChanged(); } }))),
-    h("p", { class: "hint" }, tx("Rules starting with the prefix are the generated section: applying again replaces them in place.")),
+    h("p", { class: "hint" }, tx("Rules starting with the prefix are the generated section: applying again replaces them in place."))] : null,
     h("div", { class: "row" },
       h("button", { onclick: () => { S.lev.opts = structuredClone(S.meta.leveling_defaults); levChanged(); } }, tx("Reset to config.toml")),
       h("button", { onclick: showToml }, tx("Copy as config.toml"))));
@@ -2540,7 +2550,7 @@ function classAffixPicker(o, s, toggleList) {
               } else o.class_affixes = o.class_affixes.filter((x) => x !== a.id);
               levChanged();
             } }),
-            affixName(a.id), affixPill(a), out ? h("span", { class: "hint" }, " " + tx("(left out here)")) : null,
+            h("span", { class: "name" }, affixName(a.id), affixPill(a), out ? h("span", { class: "hint" }, " " + tx("(left out here)")) : null),
             h("span", { class: "hint lvl", title: tx("lowest item level it rolls on") }, tx("lvl {n}", { n: a.level }))),
           a, new Set(a.rolls_on.filter((id) => ids.has(id))));
         }))));
@@ -2606,7 +2616,7 @@ function showToml() {
   o.style = Object.fromEntries(Object.entries(o.style || {}).map(([k, st]) => [k, st.color === null ? { ...st, color: -1 } : st]));   // -1: no recolour
   const keys = ["rule_prefix", "header", "character_class", "class_affixes", ...LEV_SECTIONS.map(([s]) => sectionKey(s)), "weapons", "offhands", "step", "cap",
     "weapon_mode", "armour", "jewelry", "gear_min_affixes", "single_affix_until", "tier_step", "max_tier", "good_bases", "endgame_bases",
-    "endgame_prefix", "endgame_header", "rarity", "style"];
+    "endgame_only", "endgame_prefix", "endgame_header", "rarity", "style"];
   const text = ["[leveling]", "enabled = true", ...keys.map((k) => `${k} = ${tomlVal(o[k] ?? "")}`)].join("\n");
   const dlg = $("#dlg");
   const ta = h("textarea", { value: text, style: { minHeight: "320px", minWidth: "560px" } });
@@ -2680,7 +2690,7 @@ function renderLevPreview() {
       h("span", { class: "hint" }, tx("Applying replaces the earlier generated section; save afterwards.")))),
     res.warnings.map((w) => h("div", { class: "warn" }, `⚠ ${txServer(w)}`)));
 
-  if (Object.keys(res.windows).length || n) {
+  if (Object.keys(res.windows).length || res.rules.length) {
     put(p, h("h3", {}, tx("When each rule is on (character level)")),
       h("div", { class: "row" }, tx("Character level"), h("input", { type: "range", min: 1, max: 100, value: S.lvl.level, style: { flex: 1 }, oninput: (e) => setLevel(e.target.value, "leveling") }),
         h("b", { id: "lev-lvl" }, S.lvl.level)),
@@ -2690,7 +2700,7 @@ function renderLevPreview() {
 
   const ruleList = (rules) => h("ul", { class: "gen-rules" }, rules.map((r) => h("li", {}, ruleSwatch(r),
     h("span", {}, r.name), isSeparator(r) ? null : h("span", { class: "rule-chips" }, r.conditions.map((c) => h("span", { class: "chip-s" }, condSummary(c)))))));
-  put(p, h("h3", {}, tx("Generated rules (top first)")), ruleList(res.rules),
+  put(p, h("h3", {}, tx("Generated rules (top first)")), res.rules.length ? ruleList(res.rules) : null,
     res.endgame.length ? [h("div", { class: "group-label" }, tx("Endgame rares: their own section, right below the exalted & legendary rules")), ruleList(res.endgame)] : null);
 
   put(p, h("h3", {}, tx("Affixes each kind of gear takes, and where they roll")),
@@ -2767,10 +2777,15 @@ async function applyLeveling() {
     S.doc.rules = res.merged;
     S.sel = Math.min(res.position, S.doc.rules.length - 1);
   }, { editor: true });
-  toast(txn(n, "Leveling section applied: {n} rule at position {at}. Save to keep it.",
-    "Leveling section applied: {n} rules at position {at}. Save to keep it.", { at: res.position + 1 }));
-  S.lvl.on = true;
-  $("#lvl-on").checked = true;
+  if (res.endgame_only) {
+    toast(txn(n, "Endgame rares applied: {n} rule at position {at}. Save to keep it.",
+      "Endgame rares applied: {n} rules at position {at}. Save to keep it.", { at: res.position + 1 }));
+  } else {
+    toast(txn(n, "Leveling section applied: {n} rule at position {at}. Save to keep it.",
+      "Leveling section applied: {n} rules at position {at}. Save to keep it.", { at: res.position + 1 }));
+    S.lvl.on = true;
+    $("#lvl-on").checked = true;
+  }
   switchTab("rules");
   renderList();
   scrollToSel();

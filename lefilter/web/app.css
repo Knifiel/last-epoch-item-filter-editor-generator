@@ -191,6 +191,9 @@ ul.affix-names { list-style: none; padding: 0; }
 .section-toggle { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; }
 .section-affixes { border-left: 2px solid var(--line); padding-left: 10px; margin: 8px 0; }
 .section-affixes > .row:first-child select { font-size: 12px; }
+.class-affixes .pool-cols label { flex-wrap: wrap; }
+/* the name (and its pill) takes the room left beside the level and wraps there: a long name never pushes the row past its column */
+.class-affixes .pool-cols label .name { flex: 1 1 0; }
 .class-affixes .pool-cols label .lvl { margin-left: auto; padding-left: 8px; font-size: 11px; white-space: nowrap; }
 .box { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin: 8px 0; }
 

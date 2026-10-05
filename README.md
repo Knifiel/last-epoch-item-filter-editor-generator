@@ -312,7 +312,9 @@ finger doesn't click.
   items, and double T7 on corrupted ones), a **show-all-corrupted** rule (normal to exalted
   items that dropped corrupted, whatever their affixes: some builds want the corrupted
   affixes themselves; `[starter] corrupted`), a show-all-legendary rule and, below it, a
-  **show-all-cocooned** rule (cocooned items only hold a random unique; `[starter] cocooned`); the unique/set rules; and a rule
+  **show-all-cocooned** rule (cocooned items only hold a random unique; `[starter] cocooned`) and, at the bottom of
+  those, a **4xT5 rares** rule (rare and exalted items with four affixes at T5+, whatever they are;
+  `[starter] rares_4xt5`); the unique/set rules; and a rule
   hiding everything else at the bottom. That last one never hides shards, runes, glyphs or
   keys: the game only applies rules made of non-equipment conditions to those.
   In the dialog you pick the class (it sets the class hide rule to hide every other class
@@ -360,9 +362,11 @@ toggles, so a weapon can want damage while armour wants health and resistances:
   include elemental) - e.g. *Increased Physical Damage*, *Added Melee Physical Damage*,
   *Physical Penetration*;
 - **build focus** (melee, spell, throwing, bow, minion, crit, damage over time, ailment
-  chance): affixes with that keyword (*Increased Minion Damage*, *Minion Health* ...). With a
+  chance, stun): affixes with that keyword (*Increased Minion Damage*, *Minion Health* ...). With a
   melee/spell/bow/throwing focus picked, damage-type affixes for the other ways of hitting
-  are dropped (no *Added Bow Physical Damage* for a melee build);
+  are dropped (no *Added Bow Physical Damage* for a melee build). Stun affixes - *Increased
+  Stun Chance*, *Stun Avoidance* - are rarely worth it, so only *Stun* takes them (not *Melee*);
+  *Health and Stun Avoidance* counts as a health affix;
 - **attributes** (strength, dexterity, intelligence, attunement, vitality): the attribute's
   affix; for weapons, *All Attributes* (it only rolls on two-handers);
 - **defence & utility** (health, resistances, armour, endurance - its own defence layer -,
@@ -419,14 +423,14 @@ class's relics, but with a class chosen only its own are shown and used. Rarity 
 thresholds and looks are configurable.
 
 **Endgame rares**: every slot in use also gets a rule for rares (and exalted items) with two
-T5+ build affixes whose build affix tiers add up to 14 or more - T5 + T5 + T4 - at any level.
+T5+ build affixes, at any level.
 They go in a section of their own, *ENDGAME RARES - disable when not needed*, right below the
 exalted & legendary section (else right before the uniques); switch its rules off in-game when
 you don't need them, and they stay off when the leveling section is applied again. A rule takes
 the slot's ticked **endgame bases** (every base the class can find is offered; `endgame_bases`
-in `config.toml`), any base when none is ticked. (In-game it's two Affix conditions: the game
-adds up only the affixes that pass a condition's tier check, so "two T5+, 14 in all" in one
-condition would need three T5s.)
+in `config.toml`), any base when none is ticked. Tick **Endgame rares only** (`endgame_only`) to
+make just this section, without the leveling one - a leveling section the filter already has
+stays as it is.
 
 The section's rules start with `[L] ` (the endgame rares' with `[E] `); generating again replaces them in place.
 Otherwise it goes directly under a separator named like LEVELING, else above the bottom

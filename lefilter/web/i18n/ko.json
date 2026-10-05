@@ -42,6 +42,7 @@
  "Affixes ({n} picked)": "접사 ({n}개 선택)",
  "Affixes each kind of gear takes, and where they roll": "장비 종류별로 받는 접사와 그 접사가 붙는 곳",
  "Ailment chance": "상태 이상 확률",
+ "Stun": "기절",
  "All": "전체",
  "All Attributes - two-handers only": "모든 능력치 - 양손 무기 전용",
  "All Common": "모든 일반 재료",
@@ -138,7 +139,8 @@
  "Duplicate the selected rule": "선택한 규칙 복제",
  "Each affix tier": "각 접사 등급",
  "Each goes in after the rule it follows in the template; the rules already here stay as they are.": "각 규칙은 템플릿에서 그 앞에 있는 규칙 뒤에 들어가며, 이미 있는 규칙은 그대로 유지됩니다.",
- "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll. Good bases get their own rule, on until the cap (then the BiS rules take over).": "아래의 각 장비 종류는 각자 접사를 선택합니다. 토글은 그 이름에 해당하는 일반 장비 접사(예: 물리: \"… 물리 피해\", \"물리 관통\") 중 그 장비에 붙을 수 있는 것을 모두 추가합니다. 그 장비에 붙는 접사가 없는 토글은 표시되지 않습니다. 토글에 마우스를 올리면(터치스크린: 길게 누르기) 그 접사가 어디에 붙는지 볼 수 있습니다. 좋은 기본 유형은 상한 레벨까지 활성화되는 별도의 규칙을 받습니다(그 뒤에는 BiS 규칙이 이어받습니다).",
+ "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll.": "아래의 각 장비 종류는 각자 접사를 선택합니다. 토글은 그 이름에 해당하는 일반 장비 접사(예: 물리: \"… 물리 피해\", \"물리 관통\") 중 그 장비에 붙을 수 있는 것을 모두 추가합니다. 그 장비에 붙는 접사가 없는 토글은 표시되지 않습니다. 토글에 마우스를 올리면(터치스크린: 길게 누르기) 그 접사가 어디에 붙는지 볼 수 있습니다.",
+ "Good bases get their own rule, on until the cap (then the BiS rules take over).": "좋은 기본 유형은 상한 레벨까지 활성화되는 별도의 규칙을 받습니다(그 뒤에는 BiS 규칙이 이어받습니다).",
  "Each ruleset makes a rule of its own, and an item shows when any of them matches: use several for separate combinations (A + B, or C + D) that one list would mix (A + C).": "규칙 세트마다 별도의 규칙이 만들어지며, 그중 하나라도 일치하면 아이템이 표시됩니다. 하나의 목록으로는 섞여 버리는(A + C) 조합을 따로 나누고 싶을 때(A + B 또는 C + D) 여러 개를 사용하세요.",
  "Each type's endgame rare rule takes only the ticked bases (none ticked: any base). Class bases count only for the chosen class.": "각 유형의 엔드게임 희귀 규칙은 체크한 기본 유형만 대상으로 합니다 (체크 없음: 모든 기본 유형). 클래스 기본 유형은 선택한 클래스에만 해당됩니다.",
  "Each type's ticked bases get their own rule above the rest - still with a build affix, but on until the cap. Class bases count only for the chosen class.": "각 유형에서 체크한 기본 유형은 나머지보다 위에 별도의 규칙을 받습니다. 여전히 빌드 접사가 필요하지만 상한 레벨까지 활성화됩니다. 클래스 기본 유형은 선택한 클래스에만 해당됩니다.",
@@ -147,7 +149,9 @@
  "Empty: add uniques here or in-game.": "비어 있음: 여기나 게임에서 고유 아이템을 추가하세요.",
  "Enabled": "활성화",
  "Endgame bases": "엔드게임 기본 유형",
- "Endgame rare: two T5+ build affixes, tiers adding up to 14+": "엔드게임 희귀: T5+ 빌드 접사 2개, 등급 합계 14+",
+ "Endgame rares only": "엔드게임 희귀만",
+ "No leveling section: only the endgame rares section is made. A leveling section the filter already has stays as it is.": "레벨링 섹션 없음: 엔드게임 희귀 섹션만 만듭니다. 필터에 이미 있는 레벨링 섹션은 그대로 유지됩니다.",
+ "Endgame rare: two T5+ build affixes": "엔드게임 희귀: T5+ 빌드 접사 2개",
  "Endgame rares: their own section, right below the exalted & legendary rules": "엔드게임 희귀: 별도 섹션, 숭고 및 전설 규칙 바로 아래",
  "Every other idol altar": "나머지 모든 신상 제단",
  "Every rule of the template's section is here; some differ from the template's - replacing takes the template's.": "템플릿 섹션의 규칙이 모두 있지만 일부는 템플릿과 다릅니다. 교체하면 템플릿의 규칙으로 바뀝니다.",
@@ -657,6 +661,9 @@
  },
  "Leveling section applied: {n} rule at position {at}. Save to keep it.|Leveling section applied: {n} rules at position {at}. Save to keep it.": {
   "other": "레벨링 섹션 적용됨: {at}번 위치에 규칙 {n}개. 유지하려면 저장하세요."
+ },
+ "Endgame rares applied: {n} rule at position {at}. Save to keep it.|Endgame rares applied: {n} rules at position {at}. Save to keep it.": {
+  "other": "엔드게임 희귀 적용됨: {at}번 위치에 규칙 {n}개. 유지하려면 저장하세요."
  },
  "New filter with {n} rule - save it to keep it.|New filter with {n} rules - save it to keep it.": {
   "other": "규칙 {n}개로 새로운 필터를 만들었습니다. 유지하려면 저장하세요."

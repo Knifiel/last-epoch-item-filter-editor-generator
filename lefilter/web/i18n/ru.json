@@ -42,6 +42,7 @@
  "Affixes ({n} picked)": "Аффиксы (выбрано {n})",
  "Affixes each kind of gear takes, and where they roll": "Аффиксы для каждого вида снаряжения и где они выпадают",
  "Ailment chance": "Шанс наложения хворей",
+ "Stun": "Оглушение",
  "All": "Все",
  "All Attributes - two-handers only": "Все характеристики — только двуручное оружие",
  "All Common": "Все обычные",
@@ -138,7 +139,8 @@
  "Duplicate the selected rule": "Дублировать выбранное правило",
  "Each affix tier": "Ранг каждого аффикса",
  "Each goes in after the rule it follows in the template; the rules already here stay as they are.": "Каждое встаёт после правила, за которым оно идёт в шаблоне; уже имеющиеся правила остаются как есть.",
- "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll. Good bases get their own rule, on until the cap (then the BiS rules take over).": "Для каждого вида снаряжения ниже аффиксы выбираются отдельно. Переключатель добавляет все обычные аффиксы снаряжения, которые он называет (например, «Физическое»: «… физический урон», «Физическое пробивание»), если они могут выпасть на этом снаряжении; переключатели, у которых здесь ничего не выпадает, не показываются. Наведите курсор на переключатель (на сенсорном экране — нажмите и удерживайте его), чтобы увидеть, где выпадают его аффиксы. Хорошие базы получают своё правило, которое действует до предельного уровня (дальше работают правила BiS).",
+ "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll.": "Для каждого вида снаряжения ниже аффиксы выбираются отдельно. Переключатель добавляет все обычные аффиксы снаряжения, которые он называет (например, «Физическое»: «… физический урон», «Физическое пробивание»), если они могут выпасть на этом снаряжении; переключатели, у которых здесь ничего не выпадает, не показываются. Наведите курсор на переключатель (на сенсорном экране — нажмите и удерживайте его), чтобы увидеть, где выпадают его аффиксы.",
+ "Good bases get their own rule, on until the cap (then the BiS rules take over).": "Хорошие базы получают своё правило, которое действует до предельного уровня (дальше работают правила BiS).",
  "Each ruleset makes a rule of its own, and an item shows when any of them matches: use several for separate combinations (A + B, or C + D) that one list would mix (A + C).": "Каждый набор правил создаёт своё правило, и предмет показывается, если подходит под любой из них: используйте несколько для отдельных сочетаний (A + B или C + D), которые один список смешал бы (A + C).",
  "Each type's endgame rare rule takes only the ticked bases (none ticked: any base). Class bases count only for the chosen class.": "Правило редких предметов для эндгейма каждого типа берёт только отмеченные базы (ничего не отмечено: любая база). Классовые базы учитываются только для выбранного класса.",
  "Each type's ticked bases get their own rule above the rest - still with a build affix, but on until the cap. Class bases count only for the chosen class.": "Отмеченные базы каждого типа получают своё правило выше остальных — тоже с аффиксом билда, но действующее до предельного уровня. Классовые базы учитываются только для выбранного класса.",
@@ -147,7 +149,9 @@
  "Empty: add uniques here or in-game.": "Пусто: добавьте уникальные предметы сюда или в игре.",
  "Enabled": "Включено",
  "Endgame bases": "Базы для эндгейма",
- "Endgame rare: two T5+ build affixes, tiers adding up to 14+": "Редкий для эндгейма: два аффикса билда T5+, сумма рангов 14+",
+ "Endgame rares only": "Только редкие для эндгейма",
+ "No leveling section: only the endgame rares section is made. A leveling section the filter already has stays as it is.": "Без раздела прокачки: создаётся только раздел редких для эндгейма. Раздел прокачки, который уже есть в фильтре, остаётся как есть.",
+ "Endgame rare: two T5+ build affixes": "Редкий для эндгейма: два аффикса билда T5+",
  "Endgame rares: their own section, right below the exalted & legendary rules": "Редкие для эндгейма: свой раздел, сразу под правилами эпических и легендарных",
  "Every other idol altar": "Все остальные алтари идолов",
  "Every rule of the template's section is here; some differ from the template's - replacing takes the template's.": "Все правила раздела шаблона здесь есть; некоторые отличаются от шаблонных — при замене берутся правила шаблона.",
@@ -673,6 +677,12 @@
   "few": "Раздел прокачки применён: {n} правила, позиция {at}. Сохраните, чтобы изменения не пропали.",
   "many": "Раздел прокачки применён: {n} правил, позиция {at}. Сохраните, чтобы изменения не пропали.",
   "other": "Раздел прокачки применён: {n} правил, позиция {at}. Сохраните, чтобы изменения не пропали."
+ },
+ "Endgame rares applied: {n} rule at position {at}. Save to keep it.|Endgame rares applied: {n} rules at position {at}. Save to keep it.": {
+  "one": "Редкие для эндгейма применены: {n} правило, позиция {at}. Сохраните, чтобы изменения не пропали.",
+  "few": "Редкие для эндгейма применены: {n} правила, позиция {at}. Сохраните, чтобы изменения не пропали.",
+  "many": "Редкие для эндгейма применены: {n} правил, позиция {at}. Сохраните, чтобы изменения не пропали.",
+  "other": "Редкие для эндгейма применены: {n} правил, позиция {at}. Сохраните, чтобы изменения не пропали."
  },
  "New filter with {n} rule - save it to keep it.|New filter with {n} rules - save it to keep it.": {
   "one": "Новый фильтр с {n} правилом — сохраните его, чтобы не потерять.",

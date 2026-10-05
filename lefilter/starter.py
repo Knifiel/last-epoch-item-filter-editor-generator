@@ -4,7 +4,8 @@ A starter filter is built from parts, top to bottom: the [[affix_rule]]s, the sh
 the class hide rules, so its rules for other classes' affixes can fire), the [class_hide] rules (the
 chosen class's one enabled: it keeps other classes' items out of every rule below), the BiS section
 (generic per-slot rules, switched off, which the editor's Best in slot tab replaces), generic [[exalted_rule]]s
-(T8 first), a show-all-corrupted and a show-all-legendary rule under one header, the unique / set groups, optionally the leveling section, and a bottom rule hiding everything else. That last one never hides shards, runes, glyphs
+(T8 first), a show-all-corrupted, a show-all-legendary, a show-all-cocooned and a 4xT5 rares rule under one
+header, the unique / set groups, optionally the leveling section, and a bottom rule hiding everything else. That last one never hides shards, runes, glyphs
 or keys: the game only applies rules made of non-equipment conditions to those
 (Rule.MatchNonEquipment). Exalted, legendary and hide-everything rules get no rule prefix:
 they belong to the filter from then on, like rules kept from a base filter.
@@ -38,7 +39,8 @@ PARTS = {
     "shatter": "Shatter section: magic / rare gear with rare-roll affixes + class affixes ([shatter])",
     "class_hide": "Class item hide rules (the chosen class's one enabled)",
     "bis": "BiS section: generic per-slot rules, switched off - the Best in slot tab fills them ([bis])",
-    "exalted": "Generic exalted rules, T8 first ([[exalted_rule]]), and show all corrupted items ([starter] corrupted)",
+    "exalted": "Generic exalted rules, T8 first ([[exalted_rule]]), show all corrupted items ([starter] corrupted) "
+               "and, below the legendary part, rares with four T5+ affixes ([starter] rares_4xt5)",
     "legendary": "Show all legendary items, then all cocooned items ([starter] cocooned)",
     "uniques": "Unique & set rules (the [[group]]s)",
     "leveling": "Leveling section (the Leveling tab's settings)",
@@ -46,9 +48,10 @@ PARTS = {
 }
 LOOK_KEYS = RULE_KEYS - {"label", "lp_min", "lp_max", "ww_min", "ww_max"}
 EXALTED_KEYS = LOOK_KEYS | {"name", "min", "tier", "total", "uncorrupted", "corrupted"}
-STARTER_KEYS = {"header", "legendary", "corrupted", "cocooned", "hide_rest"}
+STARTER_KEYS = {"header", "legendary", "corrupted", "cocooned", "rares_4xt5", "hide_rest"}
 CORRUPTED_DEFAULT = {"name": "SHOW ALL CORRUPTED ITEMS", "color": 11}   # configs from before v0.3.0 have no [starter] corrupted
 COCOONED_DEFAULT = {"name": "SHOW ALL COCOONED ITEMS", "color": 1}      # configs from before v0.3.3 have no [starter] cocooned
+RARES_4XT5_DEFAULT = {"name": "SHOW 4xT5 RARES", "color": 4}            # configs from before v0.4.3 have no [starter] rares_4xt5
 OLD_COCOONED = "COCOONED - all"   # before v0.3.3 an [A] rule among the uniques showed them (rule_prefix aside)
 GEAR_TYPES = WEAPON_TYPES + OFFHAND_TYPES + ARMOUR_TYPES + JEWELRY_TYPES
 GEAR_TYPE_IDS = {TYPE_IDS[t] for t in GEAR_TYPES}
@@ -172,6 +175,17 @@ def plan_cocooned(config: dict, data: dict) -> Rule | None:
     return Rule(name=options.pop("name"), group="starter", spec=RuleSpec(**options), unique_ids=ids, rarity="UNIQUE")
 
 
+def plan_rares_4xt5(config: dict, affixes: list[dict]) -> Rule | None:
+    """[starter] rares_4xt5: rare and exalted items with four gear affixes at T5+, whatever they are - at
+    the bottom of the show-all rules. None when switched off (rares_4xt5 = false)."""
+    table = config.get("starter", {}).get("rares_4xt5", RARES_4XT5_DEFAULT)
+    if table is False:
+        return None
+    table = {"name": RARES_4XT5_DEFAULT["name"], **table} if isinstance(table, dict) else RARES_4XT5_DEFAULT
+    return _named_rule(table, "[starter] rares_4xt5", rarity="RARE EXALTED", affix_ids=gear_affix_ids(affixes),
+                       affix_min=4, affix_tier=5)
+
+
 def legendary_name(config: dict) -> str:
     return config.get("starter", {}).get("legendary", {}).get("name", "SHOW ALL LEGENDARY ITEMS")
 
@@ -216,9 +230,10 @@ def build_starter(config: dict, data: dict, options: dict) -> dict:
     legendary = (_named_rule(scfg.get("legendary", {"name": "SHOW ALL LEGENDARY ITEMS"}), "[starter] legendary",
                              rarity="LEGENDARY") if "legendary" in parts else None)
     cocooned = plan_cocooned(config, data) if "legendary" in parts else None
-    if exalted or legendary or cocooned:
+    rares = plan_rares_4xt5(config, data["affixes"]) if "exalted" in parts else None   # below the show-all rules
+    if exalted or legendary or cocooned or rares:
         rules.append(separator(scfg.get("header", "------ EXALTED & LEGENDARY ------")))
-        rules += exalted + [r for r in (legendary, cocooned) if r]
+        rules += exalted + [r for r in (legendary, cocooned, rares) if r]
     if "uniques" in parts:
         plan = plan_rules(config, data["uniques"])
         rules += plan.rules
@@ -236,7 +251,8 @@ def build_starter(config: dict, data: dict, options: dict) -> dict:
         lev_opts = parse_leveling(lev_table, data["bases"])
         lev = plan_leveling(lev_opts, data)
         warnings += [f"leveling: {w}" for w in lev.warnings]
-        doc_rules, _, _ = place_leveling(doc_rules, doc_infos, parse_rule_blocks([render_rule(r) for r in lev.rules]),
+        doc_rules, _, _ = place_leveling(doc_rules, doc_infos,
+                                         None if lev_opts.endgame_only else parse_rule_blocks([render_rule(r) for r in lev.rules]),
                                          parse_rule_blocks([render_rule(r) for r in lev.endgame]), lev_opts.rule_prefix,
                                          lev_opts.endgame_prefix)
     header = {"name": options.get("name") or "New filter", "icon": fcfg.get("icon", 0),
@@ -696,7 +712,8 @@ def new_from_template(config: dict, data: dict, template: dict, options: dict) -
         lev_opts = parse_leveling(table, data["bases"])
         lev = plan_leveling(lev_opts, data)
         warnings += [f"leveling: {w}" for w in lev.warnings]
-        rules, _, _ = place_leveling(rules, doc_infos, parse_rule_blocks([render_rule(r) for r in lev.rules]),
+        rules, _, _ = place_leveling(rules, doc_infos,
+                                     None if lev_opts.endgame_only else parse_rule_blocks([render_rule(r) for r in lev.rules]),
                                      parse_rule_blocks([render_rule(r) for r in lev.endgame]), lev_opts.rule_prefix,
                                      lev_opts.endgame_prefix)
     if options.get("idols"):

@@ -223,9 +223,10 @@ def cmd_build(args) -> None:
         lev_plan, lev_opts = leveling
         plan.warnings += [f"leveling: {w}" for w in lev_plan.warnings]
         blocks, replaced, at = place_leveling(blocks, lambda bs: [_block_info(b) for b in bs],
-                                              [render_rule(r) for r in lev_plan.rules], [render_rule(r) for r in lev_plan.endgame],
-                                              lev_opts.rule_prefix, lev_opts.endgame_prefix)
-        lev_info = (f"{len(lev_plan.rules)} rules at position {at + 1} from the top, {len(lev_plan.endgame)} endgame rares rules"
+                                              None if lev_opts.endgame_only else [render_rule(r) for r in lev_plan.rules],
+                                              [render_rule(r) for r in lev_plan.endgame], lev_opts.rule_prefix, lev_opts.endgame_prefix)
+        lev_info = ((f"{len(lev_plan.endgame)} endgame rares rules only, at position {at + 1} from the top" if lev_opts.endgame_only
+                     else f"{len(lev_plan.rules)} rules at position {at + 1} from the top, {len(lev_plan.endgame)} endgame rares rules")
                     + (f", replacing {replaced} previous ones" if replaced else ""))
 
     text = assemble(header, blocks)

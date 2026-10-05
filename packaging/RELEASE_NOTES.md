@@ -3,6 +3,25 @@
 Edit Last Epoch loot filters outside the game, and generate rules for uniques, leveling, idols,
 BiS items, shattering and more - straight from your own game installation.
 
+### What's new in v0.4.3
+
+- **Show 4xT5 rares**: the new-filter template's exalted & legendary section ends with a rule
+  showing rare and exalted items with four affixes at T5 or higher, whatever the affixes are
+  (`[starter] rares_4xt5` in `config.toml`; `= false` leaves it out). Your template gets it with
+  this update; in an existing filter, *Restore exalted section… → Only add missing ones* (Rules tab)
+  adds it.
+- **Leveling: endgame rares** need just two T5+ build affixes now - the tiers no longer have to add
+  up to 14.
+- **Leveling: Endgame rares only** (a tick under the class): makes just the endgame rares section,
+  no leveling section - for a character past the campaign. A leveling section the filter already
+  has stays as it is. `endgame_only` in `config.toml`.
+- **Leveling: a Stun toggle** (Build focus): stun affixes - *Increased Stun Chance*, *Stun
+  Avoidance*, the melee stun chance - are rarely worth it, so only *Stun* takes them now (*Melee*
+  no longer brings in the melee stun chance). *Health and Stun Avoidance* counts as a health affix.
+
+Upgrading: nothing to re-read. Apply the Leveling tab again to update the endgame rares in an
+existing filter.
+
 ### What's new in v0.4.2
 
 - **Several rulesets per idol kind and for idol altars** (Idols tab): *Add Additional Ruleset* gives a

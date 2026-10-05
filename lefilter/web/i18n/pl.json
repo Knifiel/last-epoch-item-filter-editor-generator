@@ -43,6 +43,7 @@
  "Affixes ({n} picked)": "Afiksy (wybrano: {n})",
  "Affixes each kind of gear takes, and where they roll": "Afiksy, które przyjmuje każdy rodzaj ekwipunku, i gdzie występują",
  "Ailment chance": "Szansa na dolegliwości",
+ "Stun": "Ogłuszenie",
  "All": "Wszystko",
  "All Attributes - two-handers only": "Wszystkie atrybuty – tylko broń dwuręczna",
  "All Common": "Wszystkie zwykłe",
@@ -139,7 +140,8 @@
  "Duplicate the selected rule": "Zduplikuj wybraną regułę",
  "Each affix tier": "Stopień każdego afiksu",
  "Each goes in after the rule it follows in the template; the rules already here stay as they are.": "Każda trafia za regułę, po której występuje w szablonie; reguły, które już tu są, pozostają bez zmian.",
- "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll. Good bases get their own rule, on until the cap (then the BiS rules take over).": "Każdy rodzaj ekwipunku poniżej ma własny wybór afiksów. Przełącznik dodaje każdy zwykły afiks ekwipunku, który nazywa (np. Fizyczna: „Obrażenia fizyczne …”, „Penetracja fizyczna”), o ile może on wystąpić na tym ekwipunku; przełączniki, dla których nic tam nie występuje, nie są pokazywane. Najedź kursorem na przełącznik (na ekranie dotykowym: naciśnij i przytrzymaj), żeby zobaczyć, gdzie występują jego afiksy. Dobre bazy mają własną regułę, aktywną aż do limitu poziomu (potem przejmują reguły BiS).",
+ "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll.": "Każdy rodzaj ekwipunku poniżej ma własny wybór afiksów. Przełącznik dodaje każdy zwykły afiks ekwipunku, który nazywa (np. Fizyczna: „Obrażenia fizyczne …”, „Penetracja fizyczna”), o ile może on wystąpić na tym ekwipunku; przełączniki, dla których nic tam nie występuje, nie są pokazywane. Najedź kursorem na przełącznik (na ekranie dotykowym: naciśnij i przytrzymaj), żeby zobaczyć, gdzie występują jego afiksy.",
+ "Good bases get their own rule, on until the cap (then the BiS rules take over).": "Dobre bazy mają własną regułę, aktywną aż do limitu poziomu (potem przejmują reguły BiS).",
  "Each ruleset makes a rule of its own, and an item shows when any of them matches: use several for separate combinations (A + B, or C + D) that one list would mix (A + C).": "Każdy zestaw reguł tworzy osobną regułę, a przedmiot jest pokazywany, gdy pasuje do któregokolwiek z nich: użyj kilku dla osobnych kombinacji (A + B albo C + D), które jedna lista by wymieszała (A + C).",
  "Each type's endgame rare rule takes only the ticked bases (none ticked: any base). Class bases count only for the chosen class.": "Reguła rzadkich przedmiotów na endgame każdego typu bierze tylko zaznaczone bazy (brak zaznaczonych: dowolna baza). Bazy klasowe liczą się tylko dla wybranej klasy.",
  "Each type's ticked bases get their own rule above the rest - still with a build affix, but on until the cap. Class bases count only for the chosen class.": "Zaznaczone bazy każdego typu dostają własną regułę nad pozostałymi – nadal z afiksem buildu, ale aktywną aż do limitu poziomu. Bazy klasowe liczą się tylko dla wybranej klasy.",
@@ -148,7 +150,9 @@
  "Empty: add uniques here or in-game.": "Pusto: dodaj unikaty tutaj lub w grze.",
  "Enabled": "Włączona",
  "Endgame bases": "Bazy na endgame",
- "Endgame rare: two T5+ build affixes, tiers adding up to 14+": "Rzadki na endgame: dwa afiksy buildu T5+, stopnie łącznie 14+",
+ "Endgame rares only": "Tylko rzadkie na endgame",
+ "No leveling section: only the endgame rares section is made. A leveling section the filter already has stays as it is.": "Bez sekcji levelowania: powstaje tylko sekcja rzadkich na endgame. Sekcja levelowania, którą filtr już ma, zostaje bez zmian.",
+ "Endgame rare: two T5+ build affixes": "Rzadki na endgame: dwa afiksy buildu T5+",
  "Endgame rares: their own section, right below the exalted & legendary rules": "Rzadkie na endgame: własna sekcja, tuż pod regułami przedmiotów podniosłych i legendarnych",
  "Every other idol altar": "Wszystkie pozostałe ołtarze posążków",
  "Every rule of the template's section is here; some differ from the template's - replacing takes the template's.": "Wszystkie reguły tej sekcji szablonu już tu są; niektóre różnią się od szablonu – zastąpienie przywróci wersję z szablonu.",
@@ -675,6 +679,12 @@
   "few": "Zastosowano sekcję levelowania: {n} reguły na pozycji {at}. Zapisz, żeby ją zachować.",
   "many": "Zastosowano sekcję levelowania: {n} reguł na pozycji {at}. Zapisz, żeby ją zachować.",
   "other": "Zastosowano sekcję levelowania: {n} reguł na pozycji {at}. Zapisz, żeby ją zachować."
+ },
+ "Endgame rares applied: {n} rule at position {at}. Save to keep it.|Endgame rares applied: {n} rules at position {at}. Save to keep it.": {
+  "one": "Zastosowano rzadkie na endgame: {n} reguła na pozycji {at}. Zapisz, żeby ją zachować.",
+  "few": "Zastosowano rzadkie na endgame: {n} reguły na pozycji {at}. Zapisz, żeby je zachować.",
+  "many": "Zastosowano rzadkie na endgame: {n} reguł na pozycji {at}. Zapisz, żeby je zachować.",
+  "other": "Zastosowano rzadkie na endgame: {n} reguł na pozycji {at}. Zapisz, żeby je zachować."
  },
  "New filter with {n} rule - save it to keep it.|New filter with {n} rules - save it to keep it.": {
   "one": "Nowy filtr z {n} regułą – zapisz go, żeby go zachować.",

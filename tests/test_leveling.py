@@ -424,7 +424,7 @@ def test_endgame_rares_per_slot_in_their_own_section():
     assert sword.sub_types == [4, 6] and helmet.sub_types == []          # no endgame base picked: any base
     assert sword.affix_ids == [30, 63] and helmet.affix_ids == [25, 30]  # in `bases` mode too: the build's affixes
     assert all(r.rarity == "RARE EXALTED" and r.char_level is None and r.spec.enabled and r.spec.color == 12
-               and (r.affix_min, r.affix_tier, r.affix_sum) == (2, 5, 14) for r in rules)
+               and (r.affix_min, r.affix_tier, r.affix_total) == (2, 5, None) for r in rules)
     assert "endgame_bases: Helmet has no bases named Laser Hat" in plan.warnings
     no_armour_affix = plan_leveling(parse_options({"focus": ["minion"], "armour": True}, BASES), DATA)
     assert no_armour_affix.endgame == [] and not [w for w in no_armour_affix.warnings if "endgame" in w]   # said already
@@ -444,23 +444,22 @@ def test_endgame_rares_per_slot_in_their_own_section():
         parse_options({"endgame_bases": {"RING": "Gold Ring"}}, BASES)
 
 
-def test_endgame_rare_needs_two_t5_and_tiers_adding_up_to_14():
+def test_endgame_rare_needs_two_t5_build_affixes():
     plan = plan_leveling(parse_options({"defence": ["health"], "damage": ["physical"], "attributes": ["strength"],
                                         "armour": True}, BASES), DATA)
     rules = parse_rule_blocks([render_rule(r) for r in plan.endgame])
     helmet = next(r for r in rules if r["name"] == "[E] Helmet endgame rare")
     assert [(c["comparsion"], c["comparsion_value"], c["min_on_same_item"], c["combined_comparsion"], c["combined_value"])
-            for c in helmet["conditions"] if c["type"] == "AffixCondition"] == [
-        ("MORE_OR_EQUAL", 5, 2, "ANY", 1), ("ANY", 0, 2, "MORE_OR_EQUAL", 14)]
+            for c in helmet["conditions"] if c["type"] == "AffixCondition"] == [("MORE_OR_EQUAL", 5, 2, "ANY", 1)]
     ctx = Context({**DATA, "uniques": []})
 
     def shown(*affixes, rarity="RARE"):   # build affixes: Added Health 25, Increased Physical Damage 30, Strength 501
         item = {"type": "HELMET", "subtype": 0, "rarity": rarity, "affixes": [{"id": a, "tier": t} for a, t in affixes]}
         return evaluate([helmet], item, 80, ctx)["index"] == 0
-    assert shown((25, 5), (30, 5), (501, 4)) and shown((25, 5), (30, 5), (501, 5)) and shown((25, 6), (30, 5), (501, 3))
-    assert not shown((25, 5), (30, 5)) and not shown((25, 5), (30, 5), (501, 1)) and not shown((25, 5), (30, 4), (501, 4))
-    assert not shown((25, 5), (30, 5), (37, 4))               # Physical Resistance isn't a build affix: 10 in all
-    assert not shown((25, 5), (30, 5), (501, 4), rarity="MAGIC")
+    assert shown((25, 5), (30, 5)) and shown((25, 5), (30, 5), (501, 1)) and shown((25, 7), (501, 6), rarity="EXALTED")
+    assert not shown((25, 5), (30, 4), (501, 4)) and not shown((25, 8))
+    assert not shown((25, 5), (37, 5))                         # Physical Resistance isn't a build affix
+    assert not shown((25, 5), (30, 5), rarity="MAGIC")
 
 
 def test_endgame_rares_go_right_below_the_exalted_section():
@@ -484,3 +483,40 @@ def test_endgame_rares_go_right_below_the_exalted_section():
     # no exalted section: right before the uniques
     out, _, _ = place_leveling(doc("--- UNIQUES ---", "unique", "HIDE"), doc_infos, [], endgame, "[L] ", "[E] ")
     assert [r["name"] for r in out][:2] == ["[E] --- ENDGAME ---", "[E] helmet"]
+
+
+def test_stun_affixes_are_the_stun_toggles_alone():
+    affixes = [affix(29, "Health and Stun Avoidance", category="Stun", rolls_on=(0,), header="Defensive"),
+               affix(51, "Stun Avoidance", category="Stun", rolls_on=(0,), header="Defensive"),
+               affix(58, "Increased Stun Chance", category="General", rolls_on=(16,)),
+               affix(91, "Increased Stun Chance with Melee Attacks", category="Melee", rolls_on=(16,)),
+               affix(89, "Increased Melee Damage", category="Melee"),
+               affix(25, "Added Health", category="Health", rolls_on=(0,))]
+    picked = toggle_affixes({"focus": ["melee", "stun"], "defence": ["health"]}, affixes)
+    assert names(picked["melee"]) == ["Increased Melee Damage"]                 # no melee stun chance
+    assert names(picked["stun"]) == ["Stun Avoidance", "Increased Stun Chance", "Increased Stun Chance with Melee Attacks"]
+    assert names(picked["health"]) == ["Health and Stun Avoidance", "Added Health"]   # a health affix, not a stun one
+    # the other ways of hitting drop their stun affixes too
+    assert names(toggle_affixes({"focus": ["spell", "stun"]}, affixes)["stun"]) == ["Stun Avoidance", "Increased Stun Chance"]
+
+
+def test_endgame_only_makes_just_the_endgame_rares():
+    table = {"weapons": ["2H Sword"], "damage": ["physical"], "defence": ["health"], "armour": True,
+             "good_bases": {"Helmet": ["Laser Hat"]}}
+    full = plan_leveling(parse_options(table, BASES), DATA)
+    only = plan_leveling(parse_options({**table, "endgame_only": True}, BASES), DATA)
+    assert full.rules and only.rules == [] and only.windows == {}
+    assert [r.name for r in only.endgame] == [r.name for r in full.endgame] and len(only.endgame) > 1
+    assert set(only.rule_affixes) == {r.name for r in only.endgame[1:]}
+    assert any("good_bases" in w for w in full.warnings) and not any("good_bases" in w for w in only.warnings)
+    with pytest.raises(ConfigError, match="endgame_only"):
+        parse_options({"endgame_only": "yes"}, BASES)
+    # applied: the filter's leveling section stays as it is, the endgame rares go below the exalted rules
+    def doc(*names):
+        return [{"name": n, "conditions": [] if n.startswith("--") or n == "HIDE" else [{"type": "RarityCondition"}],
+                 "enabled": n == "HIDE" or not n.startswith("--"), "type": "HIDE" if n == "HIDE" else "SHOW"} for n in names]
+    rules = doc("--- EXALTED & LEGENDARY ---", "double t7", "--- UNIQUES ---", "[L] --- LEVELING ---", "[L] a", "[E] old", "HIDE")
+    out, removed, at = place_leveling(rules, doc_infos, None, doc("[E] --- ENDGAME ---", "[E] helmet"), "[L] ", "[E] ")
+    assert [r["name"] for r in out] == ["--- EXALTED & LEGENDARY ---", "double t7", "--- UNIQUES ---", "[L] --- LEVELING ---",
+                                        "[L] a", "[E] --- ENDGAME ---", "[E] helmet", "HIDE"]
+    assert removed == 1 and at == 5                                    # the old endgame rare replaced where it was

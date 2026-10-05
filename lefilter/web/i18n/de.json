@@ -42,6 +42,7 @@
  "Affixes ({n} picked)": "Affixe ({n} ausgewählt)",
  "Affixes each kind of gear takes, and where they roll": "Affixe, die jede Ausrüstungsart nimmt, und wo sie vorkommen",
  "Ailment chance": "Chance auf Leiden",
+ "Stun": "Betäubung",
  "All": "Alle",
  "All Attributes - two-handers only": "Alle Attribute – nur Zweihänder",
  "All Common": "Alle gewöhnlichen",
@@ -138,7 +139,8 @@
  "Duplicate the selected rule": "Die ausgewählte Regel duplizieren",
  "Each affix tier": "Jeder Affix-Rang",
  "Each goes in after the rule it follows in the template; the rules already here stay as they are.": "Jede kommt hinter die Regel, der sie in der Vorlage folgt; die bereits vorhandenen Regeln bleiben, wie sie sind.",
- "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll. Good bases get their own rule, on until the cap (then the BiS rules take over).": "Jede der unten aufgeführten Ausrüstungsarten wählt ihre eigenen Affixe aus. Ein Schalter fügt jedes gewöhnliche Ausrüstungsaffix hinzu, das er nennt (z. B. Physisch: „… Physischer Schaden“, „Physische Durchdringung“), das auf dieser Ausrüstung vorkommen kann; Schalter, bei denen dort nichts vorkommt, werden nicht angeboten. Fahre mit der Maus über einen Schalter (Touchscreen: drücke und halte ihn gedrückt), um zu sehen, wo dessen Affixe erscheinen können. Gute Basen haben ihre eigene Regel: Sie bleiben aktiv, bis die Obergrenze erreicht ist (dann greifen die BiS-Regeln).",
+ "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll.": "Jede der unten aufgeführten Ausrüstungsarten wählt ihre eigenen Affixe aus. Ein Schalter fügt jedes gewöhnliche Ausrüstungsaffix hinzu, das er nennt (z. B. Physisch: „… Physischer Schaden“, „Physische Durchdringung“), das auf dieser Ausrüstung vorkommen kann; Schalter, bei denen dort nichts vorkommt, werden nicht angeboten. Fahre mit der Maus über einen Schalter (Touchscreen: drücke und halte ihn gedrückt), um zu sehen, wo dessen Affixe erscheinen können.",
+ "Good bases get their own rule, on until the cap (then the BiS rules take over).": "Gute Basen haben ihre eigene Regel: Sie bleiben aktiv, bis die Obergrenze erreicht ist (dann greifen die BiS-Regeln).",
  "Each ruleset makes a rule of its own, and an item shows when any of them matches: use several for separate combinations (A + B, or C + D) that one list would mix (A + C).": "Jeder Regelsatz ergibt eine eigene Regel, und ein Gegenstand wird angezeigt, sobald einer davon passt: Nutze mehrere für getrennte Kombinationen (A + B oder C + D), die eine einzige Liste vermischen würde (A + C).",
  "Each type's endgame rare rule takes only the ticked bases (none ticked: any base). Class bases count only for the chosen class.": "Die Endgame-Regel jedes Typs für seltene Gegenstände nimmt nur die angekreuzten Basen (keine angekreuzt: beliebige Basis). Klassenbasen zählen nur für die gewählte Klasse.",
  "Each type's ticked bases get their own rule above the rest - still with a build affix, but on until the cap. Class bases count only for the chosen class.": "Die angekreuzten Basen jedes Typs bekommen eine eigene Regel über den übrigen – weiterhin mit einem Build-Affix, aber bis zur Obergrenze aktiv. Klassenbasen zählen nur für die gewählte Klasse.",
@@ -147,7 +149,9 @@
  "Empty: add uniques here or in-game.": "Leer: Füge hier oder im Spiel einzigartige Gegenstände hinzu.",
  "Enabled": "Aktiviert",
  "Endgame bases": "Endgame-Basen",
- "Endgame rare: two T5+ build affixes, tiers adding up to 14+": "Seltener Endgame-Gegenstand: zwei Build-Affixe ab T5, Ränge zusammen 14+",
+ "Endgame rares only": "Nur seltene Endgame-Gegenstände",
+ "No leveling section: only the endgame rares section is made. A leveling section the filter already has stays as it is.": "Kein Leveling-Abschnitt: Nur der Abschnitt für seltene Endgame-Gegenstände wird erstellt. Ein Leveling-Abschnitt, den der Filter bereits hat, bleibt unverändert.",
+ "Endgame rare: two T5+ build affixes": "Seltener Endgame-Gegenstand: zwei Build-Affixe ab T5",
  "Endgame rares: their own section, right below the exalted & legendary rules": "Seltene Endgame-Gegenstände: eigener Abschnitt, direkt unter den Erhaben- & Legendär-Regeln",
  "Every other idol altar": "Alle übrigen Götzenaltäre",
  "Every rule of the template's section is here; some differ from the template's - replacing takes the template's.": "Alle Regeln aus dem Abschnitt der Vorlage sind hier enthalten; einige weichen von der Vorlage ab – beim Ersetzen werden die Werte aus der Vorlage übernommen.",
@@ -662,6 +666,10 @@
  "Leveling section applied: {n} rule at position {at}. Save to keep it.|Leveling section applied: {n} rules at position {at}. Save to keep it.": {
   "one": "Leveling-Abschnitt angewendet: {n} Regel an Position {at}. Speichern, um ihn zu behalten.",
   "other": "Leveling-Abschnitt angewendet: {n} Regeln an Position {at}. Speichern, um ihn zu behalten."
+ },
+ "Endgame rares applied: {n} rule at position {at}. Save to keep it.|Endgame rares applied: {n} rules at position {at}. Save to keep it.": {
+  "one": "Seltene Endgame-Gegenstände angewendet: {n} Regel an Position {at}. Speichern, um sie zu behalten.",
+  "other": "Seltene Endgame-Gegenstände angewendet: {n} Regeln an Position {at}. Speichern, um sie zu behalten."
  },
  "New filter with {n} rule - save it to keep it.|New filter with {n} rules - save it to keep it.": {
   "one": "Neuer Filter mit {n} Regel – speichere ihn, um ihn zu behalten.",

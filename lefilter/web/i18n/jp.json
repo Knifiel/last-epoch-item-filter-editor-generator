@@ -42,6 +42,7 @@
  "Affixes ({n} picked)": "アフィックス（{n}個選択中）",
  "Affixes each kind of gear takes, and where they roll": "装備の種類ごとのアフィックスと、それが付く場所",
  "Ailment chance": "状態効果付与率",
+ "Stun": "スタン",
  "All": "すべて",
  "All Attributes - two-handers only": "全能力値 - 両手武器のみ",
  "All Common": "全コモン",
@@ -138,7 +139,8 @@
  "Duplicate the selected rule": "選択したルールを複製",
  "Each affix tier": "各アフィックスのティア",
  "Each goes in after the rule it follows in the template; the rules already here stay as they are.": "それぞれ、テンプレートで直前にあるルールの後に追加されます。既存のルールはそのまま残ります。",
- "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll. Good bases get their own rule, on until the cap (then the BiS rules take over).": "以下の装備の種類ごとに、それぞれアフィックスを選びます。トグルは、名前に当てはまる通常の装備アフィックス（例：物理なら「…物理ダメージ」「物理貫通」）のうち、その装備に付くものをすべて追加します。その装備に付くものがないトグルは表示されません。トグルにカーソルを合わせる（タッチスクリーンでは長押しする）と、そのアフィックスが付く場所を確認できます。良好なベースには専用のルールが作られ、上限レベルまで有効です（その後はBiSルールに引き継がれます）。",
+ "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll.": "以下の装備の種類ごとに、それぞれアフィックスを選びます。トグルは、名前に当てはまる通常の装備アフィックス（例：物理なら「…物理ダメージ」「物理貫通」）のうち、その装備に付くものをすべて追加します。その装備に付くものがないトグルは表示されません。トグルにカーソルを合わせる（タッチスクリーンでは長押しする）と、そのアフィックスが付く場所を確認できます。",
+ "Good bases get their own rule, on until the cap (then the BiS rules take over).": "良好なベースには専用のルールが作られ、上限レベルまで有効です（その後はBiSルールに引き継がれます）。",
  "Each ruleset makes a rule of its own, and an item shows when any of them matches: use several for separate combinations (A + B, or C + D) that one list would mix (A + C).": "ルールセットごとに個別のルールが作られ、どれか1つに一致すればアイテムが表示されます。1つのリストでは混ざってしまう組み合わせ（A + C）を避け、別々の組み合わせ（A + B、または C + D）にしたいときに複数使ってください。",
  "Each type's endgame rare rule takes only the ticked bases (none ticked: any base). Class bases count only for the chosen class.": "各タイプのエンドゲーム用レアのルールは、チェックしたベースだけを対象にします（チェックなし：全ベース）。クラスのベースは選択したクラスでのみ使われます。",
  "Each type's ticked bases get their own rule above the rest - still with a build affix, but on until the cap. Class bases count only for the chosen class.": "各タイプでチェックしたベースには、他より上に専用のルールが作られます（ビルドアフィックスは必要ですが、上限レベルまで有効です）。クラスのベースは選択したクラスでのみ使われます。",
@@ -147,7 +149,9 @@
  "Empty: add uniques here or in-game.": "空です：ここかゲーム内でユニークを追加してください。",
  "Enabled": "有効",
  "Endgame bases": "エンドゲーム用ベース",
- "Endgame rare: two T5+ build affixes, tiers adding up to 14+": "エンドゲーム用レア：T5以上のビルドアフィックス2個、ティア合計14以上",
+ "Endgame rares only": "エンドゲーム用レアのみ",
+ "No leveling section: only the endgame rares section is made. A leveling section the filter already has stays as it is.": "レベル上げセクションは作成せず、エンドゲーム用レアのセクションのみを作成します。フィルターに既にあるレベル上げセクションはそのまま残ります。",
+ "Endgame rare: two T5+ build affixes": "エンドゲーム用レア：T5以上のビルドアフィックス2個",
  "Endgame rares: their own section, right below the exalted & legendary rules": "エンドゲーム用レア：専用のセクション、イグゾルド＆レジェンダリーのルールのすぐ下",
  "Every other idol altar": "残りの偶像の祭壇",
  "Every rule of the template's section is here; some differ from the template's - replacing takes the template's.": "テンプレートのセクションのルールはすべてここにあります。一部はテンプレートと異なり、置き換えるとテンプレートのものになります。",
@@ -657,6 +661,9 @@
  },
  "Leveling section applied: {n} rule at position {at}. Save to keep it.|Leveling section applied: {n} rules at position {at}. Save to keep it.": {
   "other": "レベル上げセクションを適用しました：{at}番目に{n}件のルール。保存すると確定します。"
+ },
+ "Endgame rares applied: {n} rule at position {at}. Save to keep it.|Endgame rares applied: {n} rules at position {at}. Save to keep it.": {
+  "other": "エンドゲーム用レアを適用しました：{at}番目に{n}件のルール。保存すると確定します。"
  },
  "New filter with {n} rule - save it to keep it.|New filter with {n} rules - save it to keep it.": {
   "other": "{n}件のルールで新しいフィルターを作成しました。保存すると確定します。"

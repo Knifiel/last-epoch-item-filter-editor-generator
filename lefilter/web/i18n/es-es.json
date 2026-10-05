@@ -42,6 +42,7 @@
  "Affixes ({n} picked)": "Afijos ({n} seleccionados)",
  "Affixes each kind of gear takes, and where they roll": "Afijos que admite cada tipo de equipo y dónde aparecen",
  "Ailment chance": "Probabilidad de estado alterado",
+ "Stun": "Aturdimiento",
  "All": "Todo",
  "All Attributes - two-handers only": "Todos los atributos: solo armas de dos manos",
  "All Common": "Todos los comunes",
@@ -138,7 +139,8 @@
  "Duplicate the selected rule": "Duplicar la regla seleccionada",
  "Each affix tier": "Grado de cada afijo",
  "Each goes in after the rule it follows in the template; the rules already here stay as they are.": "Cada una va detrás de la regla a la que sigue en la plantilla; las reglas que ya están aquí se quedan como están.",
- "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll. Good bases get their own rule, on until the cap (then the BiS rules take over).": "Cada tipo de equipo de abajo elige sus propios afijos. Un botón añade todos los afijos normales de equipo que nombra (p. ej., Físico: «… daño físico», «Penetración física») que pueden aparecer en ese equipo; no se ofrecen los botones sin nada que pueda aparecer ahí. Pasa el cursor sobre un botón (en pantalla táctil: mantenlo pulsado) para ver dónde aparecen sus afijos. Las buenas bases tienen su propia regla, activa hasta el límite (después mandan las reglas BiS).",
+ "Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names (e.g. Physical: \"… Physical Damage\", \"Physical Penetration\") that can roll on that gear; toggles with nothing that rolls there aren't offered. Hover a toggle (touch screen: press and hold it) to see where its affixes roll.": "Cada tipo de equipo de abajo elige sus propios afijos. Un botón añade todos los afijos normales de equipo que nombra (p. ej., Físico: «… daño físico», «Penetración física») que pueden aparecer en ese equipo; no se ofrecen los botones sin nada que pueda aparecer ahí. Pasa el cursor sobre un botón (en pantalla táctil: mantenlo pulsado) para ver dónde aparecen sus afijos.",
+ "Good bases get their own rule, on until the cap (then the BiS rules take over).": "Las buenas bases tienen su propia regla, activa hasta el límite (después mandan las reglas BiS).",
  "Each ruleset makes a rule of its own, and an item shows when any of them matches: use several for separate combinations (A + B, or C + D) that one list would mix (A + C).": "Cada conjunto de reglas genera su propia regla, y un objeto se muestra en cuanto coincide con alguno: usa varios para combinaciones separadas (A + B, o C + D) que una sola lista mezclaría (A + C).",
  "Each type's endgame rare rule takes only the ticked bases (none ticked: any base). Class bases count only for the chosen class.": "La regla de raros de endgame de cada tipo solo toma las bases marcadas (ninguna marcada: cualquier base). Las bases de clase solo cuentan para la clase elegida.",
  "Each type's ticked bases get their own rule above the rest - still with a build affix, but on until the cap. Class bases count only for the chosen class.": "Las bases marcadas de cada tipo tienen su propia regla por encima del resto (también con un afijo de la build, pero activa hasta el límite). Las bases de clase solo cuentan para la clase elegida.",
@@ -147,7 +149,9 @@
  "Empty: add uniques here or in-game.": "Vacío: añade únicos aquí o en el juego.",
  "Enabled": "Activada",
  "Endgame bases": "Bases de endgame",
- "Endgame rare: two T5+ build affixes, tiers adding up to 14+": "Raro de endgame: dos afijos de la build T5+, grados que sumen 14+",
+ "Endgame rares only": "Solo raros de endgame",
+ "No leveling section: only the endgame rares section is made. A leveling section the filter already has stays as it is.": "Sin sección de subida de nivel: solo se crea la sección de raros de endgame. Una sección de subida de nivel que el filtro ya tenga se queda como está.",
+ "Endgame rare: two T5+ build affixes": "Raro de endgame: dos afijos de la build T5+",
  "Endgame rares: their own section, right below the exalted & legendary rules": "Raros de endgame: su propia sección, justo debajo de las reglas de excelsos y legendarios",
  "Every other idol altar": "Todos los demás altares de ídolos",
  "Every rule of the template's section is here; some differ from the template's - replacing takes the template's.": "Están todas las reglas de la sección de la plantilla; algunas difieren de las de la plantilla: al sustituirlas se usan las de la plantilla.",
@@ -662,6 +666,10 @@
  "Leveling section applied: {n} rule at position {at}. Save to keep it.|Leveling section applied: {n} rules at position {at}. Save to keep it.": {
   "one": "Sección de subida de nivel aplicada: {n} regla en la posición {at}. Guarda para conservarla.",
   "other": "Sección de subida de nivel aplicada: {n} reglas en la posición {at}. Guarda para conservarla."
+ },
+ "Endgame rares applied: {n} rule at position {at}. Save to keep it.|Endgame rares applied: {n} rules at position {at}. Save to keep it.": {
+  "one": "Raros de endgame aplicados: {n} regla en la posición {at}. Guarda para conservarla.",
+  "other": "Raros de endgame aplicados: {n} reglas en la posición {at}. Guarda para conservarlas."
  },
  "New filter with {n} rule - save it to keep it.|New filter with {n} rules - save it to keep it.": {
   "one": "Filtro nuevo con {n} regla: guárdalo para conservarlo.",

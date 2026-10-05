@@ -72,11 +72,15 @@ ENDGAME_PLACEMENT = {"section": "ENDGAME", "after": "EXALTED", "before": "UNIQUE
 BIS_PLACEMENT = {"section": "BIS", "fallback": "top"}
 
 
-def place_leveling(items: list, infos, leveling: list, endgame: list, prefix: str, endgame_prefix: str) -> tuple[list, int, int]:
+def place_leveling(items: list, infos, leveling: list | None, endgame: list, prefix: str,
+                   endgame_prefix: str) -> tuple[list, int, int]:
     """items with the leveling section and its endgame rares section (by their prefixes) replaced by the new
-    ones, each where its placement says; infos(items) -> their RuleInfos. Returns (items, rules removed,
-    position of the leveling section)."""
-    out, gone, _ = place(items, infos(items), endgame, endgame_prefix, **ENDGAME_PLACEMENT)
+    ones, each where its placement says; infos(items) -> their RuleInfos. leveling None (endgame_only):
+    the leveling section stays as it is. Returns (items, rules removed, position of the leveling section -
+    without one, of the endgame rares)."""
+    out, gone, at = place(items, infos(items), endgame, endgame_prefix, **ENDGAME_PLACEMENT)
+    if leveling is None:
+        return out, gone, at
     out, removed, at = place(out, infos(out), leveling, prefix, **LEVELING_PLACEMENT)
     return out, gone + removed, at
 
