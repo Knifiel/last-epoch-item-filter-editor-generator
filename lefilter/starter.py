@@ -31,7 +31,7 @@ from .leveling import (CLASS_CATEGORIES, SECTION_OF, build_affixes, gear_affixes
 from .rules import (RULE_KEYS, ConfigError, Rule, RuleSpec, _check_keys, class_hide_name, plan_affix_rules, plan_class_hide, renamed_rules,
                     plan_rules, released_defaults, separator)
 from .sections import (IDOL_PLACEMENT, class_hide_index, doc_infos, insert_position, place, place_class_hide,
-                       place_shatter)
+                       place_leveling, place_shatter)
 
 PARTS = {
     "personal": "Always show personal affixes ([[affix_rule]])",
@@ -236,8 +236,9 @@ def build_starter(config: dict, data: dict, options: dict) -> dict:
         lev_opts = parse_leveling(lev_table, data["bases"])
         lev = plan_leveling(lev_opts, data)
         warnings += [f"leveling: {w}" for w in lev.warnings]
-        doc_rules, _, _ = place(doc_rules, doc_infos(doc_rules), parse_rule_blocks([render_rule(r) for r in lev.rules]),
-                                lev_opts.rule_prefix)
+        doc_rules, _, _ = place_leveling(doc_rules, doc_infos, parse_rule_blocks([render_rule(r) for r in lev.rules]),
+                                         parse_rule_blocks([render_rule(r) for r in lev.endgame]), lev_opts.rule_prefix,
+                                         lev_opts.endgame_prefix)
     header = {"name": options.get("name") or "New filter", "icon": fcfg.get("icon", 0),
               "icon_color": fcfg.get("icon_color", 0), "description": "", "version": data.get("game_version") or ""}
     return {"header": header, "rules": doc_rules, "warnings": warnings}
@@ -695,8 +696,9 @@ def new_from_template(config: dict, data: dict, template: dict, options: dict) -
         lev_opts = parse_leveling(table, data["bases"])
         lev = plan_leveling(lev_opts, data)
         warnings += [f"leveling: {w}" for w in lev.warnings]
-        rules, _, _ = place(rules, doc_infos(rules), parse_rule_blocks([render_rule(r) for r in lev.rules]),
-                            lev_opts.rule_prefix)
+        rules, _, _ = place_leveling(rules, doc_infos, parse_rule_blocks([render_rule(r) for r in lev.rules]),
+                                     parse_rule_blocks([render_rule(r) for r in lev.endgame]), lev_opts.rule_prefix,
+                                     lev_opts.endgame_prefix)
     if options.get("idols"):
         idol_opts = idols.parse_options(options["idols"])
         plan = idols.plan_idols(idol_opts, idols.idol_kinds(data), idols.altar_kind(data))

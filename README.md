@@ -26,7 +26,9 @@ program reads all item data from **your own game installation** - no game data c
    Windows may warn that it's from an unknown publisher - "More info" -> "Run anyway"; it isn't
    code-signed, and some antivirus programs flag unsigned one-file Python programs by mistake).
 3. A console window opens (on Linux a terminal window) and the editor opens in your browser.
-   Keep the window open while you use the editor; close it to stop.
+   Keep the window open while you use the editor. Closing the editor in the browser (its last
+   tab, or the browser) stops the program and closes the window about 10 seconds later - a
+   reload doesn't; closing the window stops it too.
 
 The first start reads the game files and takes a minute or two: it also downloads two helper
 tools once, [Cpp2IL](https://github.com/SamboyCoding/Cpp2IL) from GitHub and
@@ -54,7 +56,8 @@ on Windows and `~/.local/share/last-epoch-item-filter-editor` on Linux.
   Weaver's Will, exalted and T8 rules, corrupted item rules, a BiS section, shatter rules, class
   item hide rules and a hide-everything-else rule, set up for the class you pick.
 - **[Leveling generator](#leveling-section)**: pick damage types, build focus, attributes, your
-  class's skill-level affixes and weapon types; get campaign rules whose bases switch over every 10 levels, plus the good bases you pick
+  class's skill-level affixes and weapon types; get campaign rules whose bases switch over every 10 levels and whose
+  build affixes need a higher tier as you level, plus the good bases you pick and endgame rares rules for every slot
   per slot until the cap.
 - **[Best in slot generator](#best-in-slot-generator)**: per slot the bases and affixes the build
   wants at the end, a strict tier with a beam and a looser one, optionally a minimum forging
@@ -198,7 +201,10 @@ Derived values follow the game's own logic:
 
 `python -m lefilter ui` (what the downloadable program runs) starts a small local web app
 (http://127.0.0.1:8765, standard library only, reachable from this computer only) and opens it
-in the browser - on WSL in the Windows default browser. It edits the filters in the game's
+in the browser - on WSL in the Windows default browser. Once the editor's last tab is closed it
+stops by itself (after 10 seconds, so a reload doesn't stop it); a tab left open when it stopped says
+so and carries on once it's started again. `--keep-running` keeps it running; with `--no-browser`
+it doesn't open the browser and keeps running. It edits the filters in the game's
 Filters folder and in `out/`. The language menu switches the editor to any of the game's
 languages: its own texts, and item, unique and affix names. Where a text is one of the game's
 loot-filter words (Rarity, the condition names, rarities, item slots, classes, factions, rune and
@@ -240,7 +246,8 @@ finger doesn't click.
   places - the unique & set rules (Weaver's Will included; rarely edited, so they come after the
   rest) right above the leveling section, else above the bottom hide-everything rule, BiS rules
   under the BiS header, the idol section right before the uniques, the leveling section above
-  the bottom hide-everything rule (each only if the filter has that spot), then the shatter
+  the bottom hide-everything rule, its endgame rares right below the exalted & legendary section
+  (each only if the filter has that spot), then the shatter
   section and the class hide rule to the top, right below the always-show rules; other rules
   stay where they are (your own rules among the uniques move with them). Ctrl+Z undoes it.
 - **Restore exalted section…** (Rules tab) puts the new-filter template's exalted & legendary
@@ -265,6 +272,10 @@ finger doesn't click.
   while all five classes are ticked - and any rule that can't match yet (an empty uniques list
   or no item type). Filling them is optional: the filter works without them. The line above the
   list counts them and *Next* jumps to the next one; the editor says what each waits for.
+- **Duplicate of #N** marks a rule with the same conditions as an enabled rule above it (in any
+  order, lists in any order): that rule decides first, so this one never applies. The line above
+  the list counts them with *Next*; the rule editor says which rule it repeats, with a button to go
+  there.
 - **Add missing sections…** (Rules tab) completes a filter that didn't start from *New* -
   e.g. the uniques-only one `build --standalone` writes, which the editor points out when
   you open it: the new-filter template's always-show affixes, generic BiS rules, exalted and
@@ -390,6 +401,12 @@ a build affix plus a plain rule for the rest (`weapon_mode`: `highlight` / `requ
 items with a single build affix (until 30). **Jewelry and belts** cap out early and their
 base rarely matters, so every one with a build affix is shown until 60.
 
+**Build affixes need a higher tier as you level**: the character level divided by 10 (T1 at
+first), up to T4 - any tier until level 19, T2+ from 20, T3+ from 30, T4+ from 40 - so a
+low-tier drop stops showing once better ones drop. Every rule asking for build affixes is
+split where the tier changes. `tier_step` (10; 0 = any tier at every level) and `max_tier` (4)
+set it.
+
 **Good bases** are the bases you want whatever the level - what counts as good depends on
 the build, so you pick them per slot (weapons, off-hands, armour, jewelry, belts; in the
 editor or `good_bases` in `config.toml`). Like the other leveling gear they need a build
@@ -401,7 +418,17 @@ Bone and Gold Amulet, Spidersilk Sash and a few relics per class. The list keeps
 class's relics, but with a class chosen only its own are shown and used. Rarity defaults to magic, rare and exalted; window size, cap,
 thresholds and looks are configurable.
 
-The section's rules start with `[L] `; generating again replaces them in place.
+**Endgame rares**: every slot in use also gets a rule for rares (and exalted items) with two
+T5+ build affixes whose build affix tiers add up to 14 or more - T5 + T5 + T4 - at any level.
+They go in a section of their own, *ENDGAME RARES - disable when not needed*, right below the
+exalted & legendary section (else right before the uniques); switch its rules off in-game when
+you don't need them, and they stay off when the leveling section is applied again. A rule takes
+the slot's ticked **endgame bases** (every base the class can find is offered; `endgame_bases`
+in `config.toml`), any base when none is ticked. (In-game it's two Affix conditions: the game
+adds up only the affixes that pass a condition's tier check, so "two T5+, 14 in all" in one
+condition would need three T5s.)
+
+The section's rules start with `[L] ` (the endgame rares' with `[E] `); generating again replaces them in place.
 Otherwise it goes directly under a separator named like LEVELING, else above the bottom
 "hide everything" rule. In the editor the *Leveling generator* tab shows a timeline of
 which bases are shown at which character level, the affixes each toggle picks with where
@@ -449,8 +476,21 @@ rolls, in their own group). Tick the ones you want
 and whether one or both of an idol's two affixes must be among them; each kind with picks
 becomes one show rule (item type + its bases + affix condition), optionally followed by a
 rule hiding every other non-unique idol. Picks can be copied to another kind (e.g. a size's
-Omen version) or to every other kind at once - each takes the picks that can roll on it. The section's rules start with `[I] `: applying again replaces them, and
-opening a filter loads its picks back from them. Without a section yet it goes under a
+Omen version) or to every other kind at once - each takes the picks that can roll on it.
+
+When one list of picks isn't specific enough - you want A + B or C + D, but one list of A, B,
+C, D needing both would also take A + C - *Add Additional Ruleset* gives the kind another
+bordered block of the same pickers: each ruleset becomes a rule of its own (named `#2`, `#3` ...
+after the first), and an idol shows when any of them matches. A kind's rules needing both
+affixes go above those needing one, so an idol with both gets their look. A ruleset that makes
+nothing new - the same as another one (e.g. duplicated and left as it was), or inside one with the
+same look (its picks among the other's) - makes no rule: its block says *same as* / *covered by
+Ruleset N* and the tab warns. A ruleset can be collapsed to a line saying what it picks,
+duplicated right below itself, or deleted with its ✕ while the kind has more than one (asking
+first, unless you tick *Don't ask in the future*). Copying an extra ruleset to other kinds adds it
+to each as a ruleset of its own, where enough of its picks roll to keep it as narrow. The
+section's rules start with `[I] `: applying again replaces them, and opening a filter loads its
+picks back from them, one ruleset per rule. Without a section yet it goes under a
 separator named like IDOL, else right before the uniques, else at the top of the filter; the tab warns about rules above
 it that catch idols by type alone. Heretical (enchanted) idols are crafted from class idols
 and are separate bases, so each class idol's rule lists its heretical version too: one
@@ -459,8 +499,8 @@ thrown out of the inventory is shown like the idol it was made from.
 **Idol altars** get one rule in the same section, from two lists: your *preferred altars*
 (bases) and your *preferred affixes* (the altar affixes, corrupted-only ones in their own
 group). The rule shows those altars with at least one of those affixes, with a beam; leave
-either list empty to take any altar or any affix. Below it a plainer rule shows every other
-altar (can be switched off).
+either list empty to take any altar or any affix; it takes extra rulesets like the idol kinds. Below
+them a plainer rule shows every other altar (can be switched off).
 
 ## Tests
 
@@ -517,6 +557,8 @@ into the repository.
 - [Cpp2IL](https://github.com/SamboyCoding/Cpp2IL) by [Samboy063](https://github.com/SamboyCoding) -
   recovering the class layouts the game's assets are stored with.
 - [PyInstaller](https://pyinstaller.org/) - the downloadable executables.
+- [Cinzel](https://github.com/NDISCOVER/Cinzel) by Natanael Gama (SIL Open Font License 1.1) - the
+  lettering of the program's icon.
 - [DeepL](https://www.deepl.com/) - first drafts of the editor's translations.
 - Texture decoders and the other libraries inside the executables: see `THIRD_PARTY_LICENSES.txt`,
   which ships with each release.

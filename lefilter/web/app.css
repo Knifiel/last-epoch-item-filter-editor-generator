@@ -87,8 +87,6 @@ main { flex: 1; min-height: 0; }
 .rule-row.inactive .rule-name::after { content: "  (off at this level)"; color: var(--muted); font-size: 11px; }
 .rule-row.separator { background: #17141a; }
 .rule-row.separator .rule-name { color: var(--gold); font-weight: 600; }
-.rule-row.drop-before { box-shadow: inset 0 2px 0 var(--gold); }
-.rule-row.drop-after { box-shadow: inset 0 -2px 0 var(--gold); }
 .rule-row.hit { outline: 2px solid var(--good); outline-offset: -2px; }
 .rule-idx { color: var(--muted); font-size: 12px; text-align: right; }
 .rule-main { min-width: 0; }
@@ -101,12 +99,18 @@ main { flex: 1; min-height: 0; }
 .badge.show { border-color: #2f5f37; color: #8fd99a; }
 /* rules to fill in for a build: optional, so pointed out in the info colour, never as an error */
 .badge.todo { border-color: #2f5577; color: var(--accent); white-space: nowrap; flex: none; }
-/* a picked unique / set item the rule's Rarity can never match */
+/* what never applies: a picked unique / set item the rule's Rarity can't match, a rule with the same conditions as
+   one above it, an idol ruleset another one covers */
 .badge.miss { border-color: #6b5a2a; color: var(--warn); white-space: nowrap; flex: none; margin-left: 4px; }
 .rule-row.todo { box-shadow: inset 3px 0 0 var(--accent); }
+.rule-row.dup { box-shadow: inset 3px 0 0 var(--warn); }
+/* the drop marker wins over the to-fill-in / duplicate ones while dragging */
+.rule-row.drop-before { box-shadow: inset 0 2px 0 var(--gold); }
+.rule-row.drop-after { box-shadow: inset 0 -2px 0 var(--gold); }
 .todo-notice { display: flex; gap: 8px; align-items: center; margin: 6px 10px; font-size: 12px; color: var(--muted); }
 .todo-notice button { margin-left: auto; padding: 2px 8px; flex: none; }
 .todo-note { display: flex; gap: 6px; align-items: baseline; margin: 8px 0 2px; font-size: 13px; color: var(--muted); }
+.todo-note button { margin-left: auto; flex: none; white-space: nowrap; }
 .rule-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
 .chip-s { font-size: 11px; color: var(--muted); background: #0e0c10; border: 1px solid #2a2430; border-radius: 3px; padding: 0 5px; }
 
@@ -232,6 +236,19 @@ a { color: var(--gold); }
 .pool-cols { columns: 2; column-gap: 18px; }
 .pool-cols label { break-inside: avoid; }
 .sticky { position: sticky; top: -10px; z-index: 2; }
+/* an idol kind's / the altar's rulesets: one bordered block each, foldable to a line or two */
+.ruleset { border: 1px solid var(--gold-dim); border-radius: 6px; padding: 6px 10px 8px; margin: 10px 0; background: var(--panel); }
+.ruleset.folded { padding-bottom: 6px; }
+.ruleset-head { display: flex; gap: 8px; align-items: center; min-height: 30px; }
+.ruleset-head b { color: var(--gold); font-weight: 600; white-space: nowrap; cursor: pointer; }
+.ruleset-head button { min-height: 30px; }
+.ruleset-head button.icon { min-width: 30px; padding: 0 6px; }
+.ruleset-head .badge { white-space: nowrap; flex: none; }
+.ruleset-note { margin: 6px 0 2px; font-size: 13px; }
+.ruleset-head button.x:hover { border-color: #7a3434; color: #e08a8a; }
+.ruleset-sum { color: var(--muted); font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ruleset-details { color: var(--muted); font-size: 12px; margin: 2px 0 0 38px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ruleset > h3:first-of-type { margin-top: 10px; }
 
 /* filter icons: white game sprites tinted with the icon colour */
 .ficon { display: inline-block; width: 24px; height: 24px; -webkit-mask: center / contain no-repeat; mask: center / contain no-repeat; }
@@ -324,3 +341,7 @@ body { max-width: 2560px; margin: 0 auto; width: 100%; }
 .remove-place .gen-rules, .remove-place .remove-where { margin: 4px 0 0 24px; font-size: 13px; }
 .remove-place .gen-rules { max-height: 28vh; overflow-y: auto; }
 dialog .row.notice { justify-content: flex-start; margin: 6px 0; }
+/* the server has stopped while this page stayed open */
+.offline-banner { position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 50; width: max-content;
+  max-width: calc(100vw - 32px); padding: 8px 14px; border: 1px solid #7a3434; border-top: none; border-radius: 0 0 6px 6px;
+  background: #3a1d1d; color: #f0c0c0; font-size: 13px; }

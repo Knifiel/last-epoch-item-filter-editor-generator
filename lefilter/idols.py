@@ -19,6 +19,12 @@ Idol altars get a rule of their own: the preferred altar bases with any of the p
 altar affixes (either side may be left open), with a beam; below it, optionally, a plainer
 rule showing every other altar.
 
+Each idol kind and the altar take one or more rulesets (picks), each making a rule of its own, so
+an item shows when any of them matches: separate combinations (A + B, or C + D) that one list
+would mix (A + C). A kind's rules needing both affixes go above those needing one (an idol with
+both gets their look). A ruleset another one already covers - every item it would show, the
+other shows the same way; of identical ones the first - makes no rule (a warning says so).
+
 Ordering convention: index 0 is the TOP of the in-game list.
 """
 from __future__ import annotations
@@ -160,10 +166,13 @@ def altar_kind(data: dict) -> AltarKind | None:
 
 # --- options / rules --------------------------------------------------------------
 
+EMPTY_ALTAR = {"bases": [], "affixes": []}
+
+
 @dataclass
 class IdolOptions:
-    picks: dict[str, dict] = field(default_factory=dict)   # kind key -> {"affixes": [ids], "min": 1|2}
-    altar: dict = field(default_factory=lambda: {"bases": [], "affixes": []})   # preferred altar subtypes / affix ids
+    picks: dict[str, list[dict]] = field(default_factory=dict)   # kind key -> its rulesets [{"affixes": [ids], "min": 1|2}]
+    altar: list[dict] = field(default_factory=lambda: [dict(EMPTY_ALTAR)])   # its rulesets [{"bases": subtypes, "affixes": ids}]
     show_other_altars: bool = True   # below the preferred altars, show every other altar
     rule_prefix: str = "[I] "
     header: str = "------- IDOLS (auto) -------"
@@ -176,15 +185,28 @@ class IdolOptions:
         return RuleSpec(**options)
 
 
+def _rulesets(value) -> list[dict]:
+    """A kind's rulesets: a list of them, or one table (how picks were kept before rulesets)."""
+    return [value] if isinstance(value, dict) else list(value)
+
+
 def parse_options(table: dict) -> IdolOptions:
     _check_keys(table, OPTION_KEYS, "idol options")
     opts = IdolOptions(**table)
-    for key, pick in opts.picks.items():
-        _check_keys(pick, {"affixes", "min"}, f"idol pick {key}")
-        if pick.get("min", 2) not in (1, 2):
-            raise ConfigError(f"idol pick {key}: min must be 1 or 2 (idols carry two affixes)")
-    _check_keys(opts.altar, {"bases", "affixes"}, "idol altar")
-    opts.altar = {"bases": list(opts.altar.get("bases", [])), "affixes": list(opts.altar.get("affixes", []))}
+    picks = {}
+    for key, sets in opts.picks.items():
+        picks[key] = []
+        for pick in _rulesets(sets):
+            _check_keys(pick, {"affixes", "min"}, f"idol pick {key}")
+            if pick.get("min", 2) not in (1, 2):
+                raise ConfigError(f"idol pick {key}: min must be 1 or 2 (idols carry two affixes)")
+            picks[key].append({"affixes": list(pick.get("affixes", [])), "min": pick.get("min", 2)})
+    opts.picks = picks
+    altars = []
+    for altar in _rulesets(opts.altar):
+        _check_keys(altar, {"bases", "affixes"}, "idol altar")
+        altars.append({"bases": list(altar.get("bases", [])), "affixes": list(altar.get("affixes", []))})
+    opts.altar = altars or [dict(EMPTY_ALTAR)]
     bad = set(opts.style) - set(STYLE_DEFAULTS)
     if bad:
         raise ConfigError(f"idol style: unknown {sorted(bad)}; known: {', '.join(STYLE_DEFAULTS)}")
@@ -197,6 +219,40 @@ class IdolPlan:
     warnings: list[str]
 
 
+def _number(i: int) -> str:
+    """A ruleset's mark in its rule's name: none for the first, " #2" for the second..."""
+    return f" #{i + 1}" if i else ""
+
+
+def altar_picked(opts: IdolOptions) -> bool:
+    return any(a["bases"] or a["affixes"] for a in opts.altar)
+
+
+def redundant(rulesets: dict[int, object], covers) -> dict[int, int]:
+    """The rulesets another one makes pointless: {index: index of a kept one that covers it}. rulesets:
+    index -> what its rule takes (only those making a rule); covers(a, b): every item b's rule shows, a's
+    shows the same way. Of rulesets covering each other (identical) the first is kept."""
+    def above(y, x):
+        return covers(rulesets[y], rulesets[x]) and (not covers(rulesets[x], rulesets[y]) or y < x)
+    kept = [x for x in rulesets if not any(above(y, x) for y in rulesets if y != x)]
+    return {x: next(y for y in kept if above(y, x)) for x in rulesets if x not in kept}
+
+
+def _idol_covers(a: tuple[int, list], b: tuple[int, list]) -> bool:
+    """(n, affixes): idols with n of b's affixes have n of a's (same n: same look)."""
+    return a[0] == b[0] and set(b[1]) <= set(a[1])
+
+
+def _altar_covers(a: tuple[list, list], b: tuple[list, list]) -> bool:
+    """(bases, affixes), empty = any: every altar b takes, a takes."""
+    return all(not wide or (narrow and set(narrow) <= set(wide)) for wide, narrow in zip(a, b))
+
+
+def _skipped(label: str, skip: dict[int, int]) -> list[str]:
+    return [f"{label}: ruleset {x + 1} makes no rule of its own: ruleset {y + 1} already shows everything it would"
+            for x, y in sorted(skip.items())]
+
+
 def plan_idols(opts: IdolOptions, kinds: list[IdolKind], altar: AltarKind | None = None) -> IdolPlan:
     p = opts.rule_prefix
     rules, warnings = [], []
@@ -205,53 +261,74 @@ def plan_idols(opts: IdolOptions, kinds: list[IdolKind], altar: AltarKind | None
         if key not in known:
             warnings.append(f"unknown idol kind {key!r} skipped")
     for kind in kinds:
-        pick = opts.picks.get(kind.key)
-        if not pick or not pick.get("affixes"):
-            continue
         pool = {a["id"] for a in kind.pool}
-        wanted = [a for a in dict.fromkeys(pick["affixes"]) if a in pool]
-        if len(wanted) < len(pick["affixes"]):
-            warnings.append(f"{kind.label}: {len(pick['affixes']) - len(wanted)} picked affixes can't roll on it; left out")
-        if not wanted:
-            continue
-        n = min(pick.get("min", 2), len(wanted)) if len(wanted) > 1 else 1
-        rules.append(Rule(name=f"{p}{kind.label} idol - {n}+ of {len(wanted)} wanted affixes", group="idols",
-                          spec=opts.spec("both" if n >= 2 else "single"), unique_ids=None, rarity=None,
-                          affix_ids=wanted, affix_min=n, item_types=[kind.type], sub_types=kind.all_subtypes))
-    if altar and (opts.altar["bases"] or opts.altar["affixes"]):
-        rule = _altar_rule(opts, altar, warnings)
-        if rule:
-            rules.append(rule)
-            if opts.show_other_altars:
-                rules.append(Rule(name=f"{p}Idol altar - all other altars", group="idols", spec=opts.spec("altar_other"),
-                                  unique_ids=None, rarity=None, item_types=[ALTAR_TYPE]))
+        made = {}   # ruleset index -> (affixes needed, wanted affixes)
+        for i, pick in enumerate(opts.picks.get(kind.key, [])):
+            if not pick["affixes"]:
+                continue
+            wanted = [a for a in dict.fromkeys(pick["affixes"]) if a in pool]
+            if len(wanted) < len(pick["affixes"]):
+                warnings.append(f"{kind.label}: {len(pick['affixes']) - len(wanted)} picked affixes can't roll on it; left out")
+            if wanted:
+                made[i] = (min(pick["min"], len(wanted)) if len(wanted) > 1 else 1, wanted)
+        skip = redundant(made, _idol_covers)
+        warnings += _skipped(kind.label, skip)
+        for i, (n, wanted) in sorted(((i, m) for i, m in made.items() if i not in skip), key=lambda x: -x[1][0]):
+            rules.append(Rule(name=f"{p}{kind.label} idol{_number(i)} - {n}+ of {len(wanted)} wanted affixes", group="idols",
+                              spec=opts.spec("both" if n >= 2 else "single"), unique_ids=None, rarity=None,
+                              affix_ids=wanted, affix_min=n, item_types=[kind.type], sub_types=kind.all_subtypes))
+    if altar and altar_picked(opts):
+        made = {i: picked for i, a in enumerate(opts.altar) if (picked := _altar_picks(a, altar, warnings))}
+        skip = redundant(made, _altar_covers)
+        warnings += _skipped("Idol altar", skip)
+        altars = [_altar_rule(opts, *made[i], i) for i in made if i not in skip]
+        rules += altars
+        if altars and opts.show_other_altars:
+            rules.append(Rule(name=f"{p}Idol altar - all other altars", group="idols", spec=opts.spec("altar_other"),
+                              unique_ids=None, rarity=None, item_types=[ALTAR_TYPE]))
     if opts.hide_others:
         rules.append(Rule(name=f"{p}Hide other idols", group="idols", spec=RuleSpec(action="hide"), unique_ids=None,
                           rarity="NORMAL MAGIC RARE EXALTED", item_types=list(IDOL_TYPES)))
     if rules and opts.header:
         rules.insert(0, Rule(name=f"{p}{opts.header}", group="idols", spec=RuleSpec(action="hide", enabled=False),
                              unique_ids=None, rarity=None))
-    return IdolPlan(rules=rules, warnings=warnings)
+    return IdolPlan(rules=rules, warnings=list(dict.fromkeys(warnings)))
 
 
-def _altar_rule(opts: IdolOptions, altar: AltarKind, warnings: list[str]) -> Rule | None:
+def _altar_picks(pick: dict, altar: AltarKind, warnings: list[str]) -> tuple[list, list] | None:
+    """An altar ruleset's (bases, affixes) that exist in this game version; None when it has neither."""
     known_bases, known_affixes = {b["id"] for b in altar.bases}, {a["id"] for a in altar.pool}
-    bases = [b for b in dict.fromkeys(opts.altar["bases"]) if b in known_bases]
-    affixes = [a for a in dict.fromkeys(opts.altar["affixes"]) if a in known_affixes]
-    if len(bases) < len(opts.altar["bases"]) or len(affixes) < len(opts.altar["affixes"]):
+    bases = [b for b in dict.fromkeys(pick["bases"]) if b in known_bases]
+    affixes = [a for a in dict.fromkeys(pick["affixes"]) if a in known_affixes]
+    if len(bases) < len(pick["bases"]) or len(affixes) < len(pick["affixes"]):
         warnings.append("Idol altar: some picked altars or affixes don't exist in this game version; left out")
-    if not bases and not affixes:
-        return None
+    return (bases, affixes) if bases or affixes else None
+
+
+def _altar_rule(opts: IdolOptions, bases: list, affixes: list, i: int) -> Rule:
+    """The rule of the altar's ruleset i."""
     what = " with ".join(x for x in ("preferred altars" if bases else "",
                                       f"1+ of {len(affixes)} preferred affixes" if affixes else "") if x)
-    return Rule(name=f"{opts.rule_prefix}Idol altar - {what}", group="idols", spec=opts.spec("altar"), unique_ids=None,
-                rarity=None, affix_ids=affixes or None, item_types=[ALTAR_TYPE], sub_types=bases)
+    return Rule(name=f"{opts.rule_prefix}Idol altar{_number(i)} - {what}", group="idols", spec=opts.spec("altar"),
+                unique_ids=None, rarity=None, affix_ids=affixes or None, item_types=[ALTAR_TYPE], sub_types=bases)
+
+
+def _ruleset_number(rule: dict) -> int:
+    """The ruleset a generated rule came from, by the "#2" in its name (none: the first)."""
+    m = re.search(r" #(\d+) - ", rule["name"])
+    return int(m.group(1)) if m else 1
+
+
+def _in_order(numbered: list[tuple[int, dict]]) -> list[dict]:
+    return [x for _, x in sorted(numbered, key=lambda x: x[0])]   # stable: unnumbered ones keep their order
 
 
 def read_picks(rules: list[dict], prefix: str, kinds: list[IdolKind]) -> dict:
-    """The options a previously generated idol section (editor rule dicts) was made with."""
+    """The options a previously generated idol section (editor rule dicts) was made with: each rule
+    of a kind (or of the altar) a ruleset, in the order of the numbers in their names (#2 ...), else
+    in theirs."""
     picks, hide_others, found = {}, False, False
-    altar, show_other_altars = {"bases": [], "affixes": []}, False
+    altar, show_other_altars = [], False
     for r in rules:
         if "raw" in r or not r.get("name", "").startswith(prefix):
             continue
@@ -262,7 +339,7 @@ def read_picks(rules: list[dict], prefix: str, kinds: list[IdolKind]) -> dict:
             hide_others = True
         if sub and sub["types"] == [ALTAR_TYPE]:
             if sub["subtypes"] or aff:
-                altar = {"bases": sub["subtypes"], "affixes": aff["affixes"] if aff else []}
+                altar.append((_ruleset_number(r), {"bases": sub["subtypes"], "affixes": aff["affixes"] if aff else []}))
             else:
                 show_other_altars = True
             continue
@@ -272,10 +349,11 @@ def read_picks(rules: list[dict], prefix: str, kinds: list[IdolKind]) -> dict:
         kind = next((k for k in kinds if k.type == sub["types"][0]
                      and set(k.subtypes) <= subs <= set(k.all_subtypes)), None)
         if kind:
-            picks[kind.key] = {"affixes": aff["affixes"], "min": max(1, min(2, aff["min_on_same_item"]))}
-    picked = altar["bases"] or altar["affixes"]   # without altar picks keep the default
-    return {"found": found, "picks": picks, "hide_others": hide_others, "altar": altar,
-            "show_other_altars": show_other_altars if picked else True}
+            picks.setdefault(kind.key, []).append((_ruleset_number(r), {"affixes": aff["affixes"], "min": max(1, min(2, aff["min_on_same_item"]))}))
+    picks = {k: _in_order(sets) for k, sets in picks.items()}
+    altar = _in_order(altar)
+    return {"found": found, "picks": picks, "hide_others": hide_others, "altar": altar or [dict(EMPTY_ALTAR)],
+            "show_other_altars": show_other_altars if altar else True}   # without altar picks keep the default
 
 
 def shadowing_rules(rules: list[dict], position: int, altar: bool = False) -> list[str]:

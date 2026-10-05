@@ -16,8 +16,8 @@ from .filterxml import (BaseFilter, FilterHeader, assemble, merge, read_filter, 
 from .game import DATA_FOLDER, GameNotFound, find_filters_dir, find_game, use_filters_dir
 from .paths import (CACHE_DIR, CONFIG_FILE, DATA_DIR, FROZEN, OUT_DIR, TEMPLATE_FILE, USER_DIR, prepare_user_dir,
                     save_game_dir, saved_game_dir)
-from .leveling import LevelingPlan, parse_options, plan_leveling
-from .sections import RuleInfo, class_hide_index, place
+from .leveling import LevelingOptions, LevelingPlan, parse_options, plan_leveling
+from .sections import RuleInfo, class_hide_index, place_leveling
 from .starter import describe_template_update, old_class_hide_names, sync_template
 from .report import build_report, histogram_markdown, leveling_markdown
 from .rules import ConfigError, Rule, RuleSpec, plan_affix_rules, plan_class_hide, plan_rules, read_config
@@ -147,13 +147,13 @@ def _block_info(block: str) -> RuleInfo:
                     catch_all=conditionless and "<isEnabled>true</isEnabled>" in block and "<type>HIDE</type>" in block)
 
 
-def _leveling(config: dict, data: dict, only_enabled: bool = True) -> tuple[LevelingPlan, str] | None:
-    """The [leveling] section's plan and rule prefix (None while it isn't enabled)."""
+def _leveling(config: dict, data: dict, only_enabled: bool = True) -> tuple[LevelingPlan, LevelingOptions] | None:
+    """The [leveling] section's plan and options (None while it isn't enabled)."""
     table = config.get("leveling", {})
     if only_enabled and not table.get("enabled"):
         return None
     opts = parse_options(table, data["bases"])
-    return plan_leveling(opts, data), opts.rule_prefix
+    return plan_leveling(opts, data), opts
 
 
 def cmd_extract(args) -> None:
@@ -220,11 +220,12 @@ def cmd_build(args) -> None:
             blocks.append(render_rule(catch_all))
 
     if leveling:
-        lev_plan, lev_prefix = leveling
+        lev_plan, lev_opts = leveling
         plan.warnings += [f"leveling: {w}" for w in lev_plan.warnings]
-        blocks, replaced, at = place(blocks, [_block_info(b) for b in blocks],
-                                     [render_rule(r) for r in lev_plan.rules], lev_prefix)
-        lev_info = (f"{len(lev_plan.rules)} rules at position {at + 1} from the top"
+        blocks, replaced, at = place_leveling(blocks, lambda bs: [_block_info(b) for b in bs],
+                                              [render_rule(r) for r in lev_plan.rules], [render_rule(r) for r in lev_plan.endgame],
+                                              lev_opts.rule_prefix, lev_opts.endgame_prefix)
+        lev_info = (f"{len(lev_plan.rules)} rules at position {at + 1} from the top, {len(lev_plan.endgame)} endgame rares rules"
                     + (f", replacing {replaced} previous ones" if replaced else ""))
 
     text = assemble(header, blocks)
@@ -234,7 +235,7 @@ def cmd_build(args) -> None:
     report.write_text(build_report(data, config, plan, name, len(blocks), merge_info, affix_rules, affix_members,
                                    leveling[0] if leveling else None, class_rules), encoding="utf-8")
 
-    n_leveling = len(leveling[0].rules) if leveling else 0
+    n_leveling = len(leveling[0].rules) + len(leveling[0].endgame) if leveling else 0
     print(f"\n{len(plan.rules) + len(affix_rules) + len(class_rules) + n_leveling} generated rules, "
           f"{len(blocks)}/{filterxml.MAX_RULES} rules in '{name}'")
     for r in affix_rules:
@@ -277,7 +278,7 @@ def cmd_ui(args) -> None:
     read_config(args.config)   # fail early on a broken config
     data = _data_for_build(args)
     serve(Api(data, Path(args.config), OUT_DIR, CACHE_DIR / "backups", TEMPLATE_FILE, DATA_DIR / "filter_icons",
-              DATA_DIR / "lang"), args.port, not args.no_browser)
+              DATA_DIR / "lang"), args.port, not args.no_browser, args.keep_running)
 
 
 def cmd_selftest(args) -> None:
@@ -332,7 +333,9 @@ def main(argv=None) -> None:
 
     u = sub.add_parser("ui", help="open the filter editor / leveling generator in the browser")
     u.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (0 = any free port)")
-    u.add_argument("--no-browser", action="store_true", help="don't open a browser window")
+    u.add_argument("--no-browser", action="store_true", help="don't open a browser window (it then keeps running)")
+    u.add_argument("--keep-running", action="store_true",
+                   help="keep running when the editor is closed in the browser (default: stop then)")
     u.add_argument("--no-extract", action="store_true", help="use data/uniques.json as-is")
     u.set_defaults(func=cmd_ui)
 

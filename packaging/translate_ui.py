@@ -78,10 +78,13 @@ SERVER_TEXTS = [
     "Jewelry & belts: no selected affix rolls on them; no rule generated",
     "good_bases: {type} has no bases named {names}",
     "{type} good bases: none of the build's affixes roll on it; no rule generated",
+    "endgame_bases: {type} has no bases named {names}",
+    "{type} endgame rares: none of the build's affixes roll on it; no rule generated",
     "{toggle}: only defensive affixes here, which weapons leave out "
     "(tick Include defensive affixes - weapon_affixes.defensive - to count them)",
     "{what}: rolls only on {where}, none of which is picked",
     "{kind}: {n} picked affixes can't roll on it; left out",
+    "{kind}: ruleset {n} makes no rule of its own: ruleset {m} already shows everything it would",
     "Idol altar: some picked altars or affixes don't exist in this game version; left out",
     "unknown idol kind {key} skipped",
     # the item tester's checks (matcher.py)

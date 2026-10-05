@@ -43,6 +43,7 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, a.binaries, a.datas,
     name="LEIFEG",         # Last Epoch Item Filter Editor / Generator
+    icon=str(root / "packaging" / "icon.ico"),   # Windows (packaging/make_icon.py draws it); Linux executables have none
     console=True,          # status and errors show in the console window; closing it stops the editor
     upx=False,
 )

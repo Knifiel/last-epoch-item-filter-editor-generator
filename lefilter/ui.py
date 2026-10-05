@@ -10,6 +10,7 @@ import json
 import mimetypes
 import os
 import re
+import select
 import shutil
 import socket
 import subprocess
@@ -31,7 +32,7 @@ from .game import find_filters_dir
 from . import bis, cleanup, idols
 from .leveling import (SECTIONS, TOGGLES, class_affix_choices, class_affixes, parse_options,
                        plan_leveling, toggle_affixes)
-from .sections import IDOL_PLACEMENT, doc_infos, place, reorder_generated
+from .sections import IDOL_PLACEMENT, doc_infos, place, place_leveling, reorder_generated
 from . import __version__
 from .starter import (PARTS, TEMPLATE_PARTS, add_missing_sections, class_hide_spot, load_template, make_template,
                       new_from_template, refresh_generated, restore_section, sync_template, template_stamp,
@@ -202,8 +203,14 @@ class Api:
         opts = parse_options(body.get("options", {}), self.data["bases"])
         plan = plan_leveling(opts, self.data)
         new = parse_rule_blocks([render_rule(r) for r in plan.rules])
+        endgame = parse_rule_blocks([render_rule(r) for r in plan.endgame])
+        if "rules" in body:   # the endgame rules stay on or off as the filter has them ("disable when not needed")
+            was = {r["name"]: r["enabled"] for r in body["rules"] if "raw" not in r and r.get("name", "").startswith(opts.endgame_prefix)}
+            for r in endgame:
+                r["enabled"] = was.get(r["name"], r["enabled"])
         result = {
             "rules": new,
+            "endgame": endgame,
             "windows": {t: [{"min": w.min, "max": w.max,
                              "bases": [{"id": s["id"], "name": s["name"], "level": s["level"]} for s in w.bases]}
                             for w in ws] for t, ws in plan.windows.items()},
@@ -215,10 +222,10 @@ class Api:
             "class_affixes": [a["id"] for a in plan.class_affixes],
             "warnings": plan.warnings,
             "prefix": opts.rule_prefix,
+            "endgame_prefix": opts.endgame_prefix,
         }
         if "rules" in body:
-            current = body["rules"]
-            merged, removed, at = place(current, doc_infos(current), new, opts.rule_prefix)
+            merged, removed, at = place_leveling(body["rules"], doc_infos, new, endgame, opts.rule_prefix, opts.endgame_prefix)
             result.update(merged=merged, removed=removed, position=at)
         return result
 
@@ -230,7 +237,7 @@ class Api:
         if "rules" in body:
             current = body["rules"]
             merged, removed, at = place(current, doc_infos(current), new, opts.rule_prefix, **IDOL_PLACEMENT)
-            shadows = idols.shadowing_rules(merged, at, altar=bool(opts.altar["bases"] or opts.altar["affixes"]))
+            shadows = idols.shadowing_rules(merged, at, altar=idols.altar_picked(opts))
             if shadows and new:
                 result["warnings"] = result["warnings"] + [
                     "these rules above the section catch idols or altars by type alone, so items they match never reach "
@@ -355,6 +362,8 @@ def _handler(api: Api):
                 return self._api(lambda: api.load(q.get("location", ""), q.get("file", "")))
             if url.path == "/api/lang":
                 return self._api(lambda: api.language(q.get("code", "")))
+            if url.path == "/api/alive":
+                return self._alive()
             if url.path.startswith("/icons/"):   # filter icons extracted from the game
                 root, name = api.icons_dir.resolve(), url.path.removeprefix("/icons/")
             else:
@@ -367,6 +376,28 @@ def _handler(api: Api):
             if ctype.startswith("text/") or ctype.endswith("javascript"):
                 ctype += "; charset=utf-8"
             self._send(200, path.read_bytes(), ctype)
+
+        def _alive(self) -> None:
+            """The open page's keep-alive stream (an EventSource), held until the page goes: closing the
+            editor's last page lets the server stop (see _Server.page_closed)."""
+            self.close_connection = True
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.server.page_opened()
+            try:
+                self.wfile.write(b"retry: 2000\n\n")   # a page that lost the server tries again every 2 s
+                while True:
+                    readable, _, _ = select.select([self.connection], [], [], 15)
+                    if readable and not self.connection.recv(1024):   # the browser closed it: the page is gone
+                        return
+                    if not readable:
+                        self.wfile.write(b": still here\n\n")
+            except OSError:
+                return
+            finally:
+                self.server.page_closed()
 
         def do_POST(self):
             if not self._local() or not (self.headers.get("Content-Type") or "").startswith("application/json"):
@@ -405,10 +436,42 @@ def _open_browser(url: str) -> None:
     webbrowser.open(url)
 
 
+# Seconds the server waits after the editor's last page closed before it stops: a reload opens it again sooner.
+STOP_AFTER = 10
+
+
 class _Server(ThreadingHTTPServer):
     daemon_threads = True
     # On Windows SO_REUSEADDR lets a second editor bind a port the first still listens on.
     allow_reuse_address = os.name != "nt"
+    stop_after: float | None = None   # stop this long after the last page closed (None: keep running)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pages, self._lock, self._timer = 0, threading.Lock(), None
+
+    def page_opened(self) -> None:
+        with self._lock:
+            self._pages += 1
+            if self._timer:
+                self._timer.cancel()
+                self._timer = None
+
+    def page_closed(self) -> None:
+        with self._lock:
+            self._pages -= 1
+            if self._pages or self.stop_after is None:
+                return
+            self._timer = threading.Timer(self.stop_after, self._stop_if_closed)
+            self._timer.daemon = True
+            self._timer.start()
+
+    def _stop_if_closed(self) -> None:
+        with self._lock:
+            if self._pages:
+                return
+        print("The editor was closed in the browser: stopped.")
+        self.shutdown()
 
     def server_bind(self):
         if os.name == "nt":
@@ -431,10 +494,16 @@ def _bind(handler, port: int) -> ThreadingHTTPServer:
     raise OSError("no free port on 127.0.0.1")
 
 
-def serve(api: Api, port: int, open_browser: bool) -> None:
+def serve(api: Api, port: int, open_browser: bool, keep_running: bool = False) -> None:
+    """Run the editor at 127.0.0.1:port (or the next free port). When it opens the browser itself, it stops
+    once the editor's last page is closed (and none opens again within STOP_AFTER seconds), unless keep_running."""
     server = _bind(_handler(api), port)
     url = f"http://127.0.0.1:{server.server_port}/"
-    print(f"Filter editor running at {url}  (Ctrl+C or close this window to stop)")
+    if open_browser and not keep_running:
+        server.stop_after = STOP_AFTER
+        print(f"Filter editor running at {url}  (closing it in the browser, Ctrl+C or closing this window stops it)")
+    else:
+        print(f"Filter editor running at {url}  (Ctrl+C or close this window to stop)")
     for location, d in api.dirs.items():
         print(f"  {location:8} filters: {d}")
     if open_browser:

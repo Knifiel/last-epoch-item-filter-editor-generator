@@ -3,6 +3,36 @@
 Edit Last Epoch loot filters outside the game, and generate rules for uniques, leveling, idols,
 BiS items, shattering and more - straight from your own game installation.
 
+### What's new in v0.4.2
+
+- **Several rulesets per idol kind and for idol altars** (Idols tab): *Add Additional Ruleset* gives a
+  kind another bordered block of the same pickers, and each ruleset becomes a rule of its own - for
+  separate combinations (A + B, or C + D) that one list would mix (A + C). A ruleset can be collapsed
+  to a line or two saying what it picks, duplicated right below itself, or deleted with its ✕ (asks
+  first; *Don't ask in the future* turns that off). A kind's rules needing both affixes go above
+  those needing one, so an idol with both gets their look. A ruleset that adds nothing - the same as
+  another, or inside one with the same look - makes no rule: its block says *same as* / *covered by
+  Ruleset N*. Opening a filter loads the rulesets back; picks from earlier versions load as one each.
+- **Duplicate rules marked** (Rules tab): a rule with the same conditions as an enabled rule above it
+  never applies, so it gets a *duplicate of #N* mark, the line above the list counts them with
+  *Next*, and the rule editor has *Go to rule N*. Section headers are left out.
+- **Leveling: build affixes need a higher tier as you level** - any tier until level 19, T2+ from 20,
+  T3+ from 30, T4+ from 40 - so low-tier drops stop showing once better ones drop. Rules needing build
+  affixes are split where the tier changes (`tier_step`, `max_tier` in `config.toml`).
+- **Leveling: endgame rares**: per slot in use, a rule for rares and exalted items with two T5+ build
+  affixes whose tiers add up to 14 or more (T5 + T5 + T4), at any level, on the slot's ticked endgame
+  bases (any base when none is ticked). They get a section of their own, *ENDGAME RARES - disable when
+  not needed*, right below the exalted & legendary rules; switched off in-game, they stay off when the
+  leveling section is applied again.
+- **Closing the editor stops the program**: once the editor's last browser tab (or the browser) is
+  closed, the program stops and its console window closes, about 10 seconds later - a reload doesn't
+  stop it. A tab left open when it stopped says so, and carries on (unsaved changes included) once
+  it's started again. `--keep-running` keeps it running.
+- **An icon** for the Windows executable: LEIFEG in gold on a purple swirl.
+
+Upgrading: nothing to re-read this time. Apply the Leveling tab again to get the tier steps and the
+endgame rares in an existing filter.
+
 ### What's new in v0.4.1
 
 - **Sort bases by class**: in the Item Type condition, the bases list of a type with class bases

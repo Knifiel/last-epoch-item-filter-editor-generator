@@ -66,16 +66,18 @@ def render_rule(rule: Rule, order: int = 0) -> str:
     if rule.affix_ids is not None:
         # "At least affix_min of these affixes on the item" - same layout as the in-game editor; tier
         # limits use its advanced mode (each counted affix >= affix_tier, their tiers add up to >= affix_total).
-        tier, total = rule.affix_tier, rule.affix_total
-        conditions += [f'{i8}<Condition i:type="AffixCondition">', f"{i10}<affixes>",
-                       *(f"{i12}<int>{a}</int>" for a in rule.affix_ids), f"{i10}</affixes>",
-                       f"{i10}<comparsion>{'ANY' if tier is None else 'MORE_OR_EQUAL'}</comparsion>",
-                       f"{i10}<comparsionValue>{tier or 0}</comparsionValue>",
-                       f"{i10}<minOnTheSameItem>{rule.affix_min}</minOnTheSameItem>",
-                       f"{i10}<combinedComparsion>{'ANY' if total is None else 'MORE_OR_EQUAL'}</combinedComparsion>",
-                       f"{i10}<combinedComparsionValue>{total or 1}</combinedComparsionValue>",
-                       f"{i10}<advanced>{'false' if tier is None and total is None else 'true'}</advanced>",
-                       f"{i8}</Condition>"]
+        # affix_sum: a second condition, the same affixes at any tier adding up to >= affix_sum.
+        limits = [(rule.affix_tier, rule.affix_total)] + ([(None, rule.affix_sum)] if rule.affix_sum else [])
+        for tier, total in limits:
+            conditions += [f'{i8}<Condition i:type="AffixCondition">', f"{i10}<affixes>",
+                           *(f"{i12}<int>{a}</int>" for a in rule.affix_ids), f"{i10}</affixes>",
+                           f"{i10}<comparsion>{'ANY' if tier is None else 'MORE_OR_EQUAL'}</comparsion>",
+                           f"{i10}<comparsionValue>{tier or 0}</comparsionValue>",
+                           f"{i10}<minOnTheSameItem>{rule.affix_min}</minOnTheSameItem>",
+                           f"{i10}<combinedComparsion>{'ANY' if total is None else 'MORE_OR_EQUAL'}</combinedComparsion>",
+                           f"{i10}<combinedComparsionValue>{total or 1}</combinedComparsionValue>",
+                           f"{i10}<advanced>{'false' if tier is None and total is None else 'true'}</advanced>",
+                           f"{i8}</Condition>"]
     potentials = (s.lp_min, s.lp_max, s.ww_min, s.ww_max)
     if any(v is not None for v in potentials):
         conditions.append(f'{i8}<Condition i:type="PotentialCondition">')

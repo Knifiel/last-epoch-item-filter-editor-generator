@@ -431,6 +431,11 @@ weapon_mode = "highlight"       # highlight: build-affix rule + plain base rule;
 armour = true                   # helmet/body/boots/gloves with gear_min_affixes+ build affixes
 gear_min_affixes = 2
 single_affix_until = 30         # ...and with just 1 build affix below this character level (0 = never)
+# Build affixes count from a tier that grows with the character level: level // tier_step, T1 at first,
+# up to max_tier - every 10 levels up to 4 is any tier until level 19, T2+ from 20, T3+ from 30, T4+ from 40.
+# Rules needing build affixes are split where it changes. tier_step = 0: any tier at every level.
+tier_step = 10
+max_tier = 4
 # Amulets, rings, relics and belts: their base matters little and their best bases come early,
 # so each one with a build affix shows until `cap`.
 jewelry = true
@@ -441,7 +446,14 @@ jewelry = true
 # Types left out keep the defaults below ([] = none): the jewelry and belt bases Raxxanterax's
 # S5 filter picks for the campaign, mostly resistance implicits. E.g. TWO_HANDED_SWORD = ["Claymore"].
 good_bases = { BELT = ["Spidersilk Sash"], AMULET = ["Bone Amulet", "Gold Amulet"], RING = ["Gold Ring"], RELIC = ["Spirit Catcher", "Scrying Eye", "Rune Quill", "Argent Crest", "Putrid Souls", "Ancient Coins", "Ruby Dice", "Antidote Vial"] }
+# Endgame rares: per slot in use a rule for rares with two T5+ build affixes whose build affix tiers add
+# up to 14+ (T5 + T5 + T4), at any level, in a section of their own right below the exalted rules
+# (endgame_prefix marks it, endgame_header heads it). endgame_bases: the bases each type's rule takes,
+# by item type like good_bases; types left out take any base. E.g. HELMET = ["Gladiator Helmet"].
+endgame_bases = {}
+endgame_prefix = "[E] "
+endgame_header = "------ ENDGAME RARES - disable when not needed ------"
 rarity = ["MAGIC", "RARE", "EXALTED"]
-# Looks per rule kind (rule options as above): weapon_affix, weapon_base, gear, gear_single, jewelry, good_base
+# Looks per rule kind (rule options as above): weapon_affix, weapon_base, gear, gear_single, jewelry, good_base, endgame
 # (color = -1: no recolour, for kinds that have a default colour)
 style = { weapon_affix = { color = 14, emphasized = true }, gear = { color = 13, emphasized = true }, jewelry = { color = 13 }, good_base = { color = 15, emphasized = true } }

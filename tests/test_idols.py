@@ -110,8 +110,8 @@ def test_picks_read_back_from_generated_rules():
     opts = parse_options({"picks": {"IDOL_3x1/Sentinel/omen": {"affixes": [196, 197], "min": 1}}, "hide_others": True})
     rules = parse_rule_blocks([render_rule(r) for r in plan_idols(opts, list(KINDS.values())).rules])
     got = read_picks([new_rule("mine")] + rules, "[I] ", list(KINDS.values()))
-    assert got == {"found": True, "picks": {"IDOL_3x1/Sentinel/omen": {"affixes": [196, 197], "min": 1}},
-                   "hide_others": True, "altar": {"bases": [], "affixes": []}, "show_other_altars": True}
+    assert got == {"found": True, "picks": {"IDOL_3x1/Sentinel/omen": [{"affixes": [196, 197], "min": 1}]},
+                   "hide_others": True, "altar": [{"bases": [], "affixes": []}], "show_other_altars": True}
     assert read_picks([new_rule("mine")], "[I] ", list(KINDS.values()))["found"] is False
 
 
@@ -126,7 +126,7 @@ def test_heretical_versions_share_their_class_idol_rule():
         idol = {"type": "IDOL_3x1", "subtype": subtype, "rarity": "MAGIC", "affixes": wanted}
         assert rules[evaluate(rules, idol, 50, ctx)["index"]]["name"].startswith("[I] 3x1 Sentinel idol")
     # picks read back from rules with or without the heretical base (older sections)
-    assert read_picks(rules, "[I] ", list(KINDS.values()))["picks"] == {"IDOL_3x1/Sentinel": {"affixes": [196, 110], "min": 2}}
+    assert read_picks(rules, "[I] ", list(KINDS.values()))["picks"] == {"IDOL_3x1/Sentinel": [{"affixes": [196, 110], "min": 2}]}
     old = [{**r, "conditions": [{**c, "subtypes": [2]} if c["type"] == "SubTypeCondition" else c for c in r["conditions"]]}
            for r in rules]
     assert "IDOL_3x1/Sentinel" in read_picks(old, "[I] ", list(KINDS.values()))["picks"]
@@ -170,11 +170,83 @@ def test_idol_altar_rule_from_preferred_altars_and_affixes():
     # read back, and rules above that show every altar shadow it
     rules = parse_rule_blocks([render_rule(r) for r in both])
     got = read_picks(rules, "[I] ", kinds)
-    assert got["altar"] == {"bases": [1], "affixes": [1088, 1104]} and got["show_other_altars"] is True
+    assert got["altar"] == [{"bases": [1], "affixes": [1088, 1104]}] and got["show_other_altars"] is True
     without = read_picks(parse_rule_blocks([render_rule(r) for r in only_bases]), "[I] ", kinds)
-    assert without["altar"]["bases"] == [0, 1] and without["show_other_altars"] is False
+    assert without["altar"] == [{"bases": [0, 1], "affixes": []}] and without["show_other_altars"] is False
     show_altars = new_rule("altars", conditions=[{"type": "SubTypeCondition", "types": ["IDOL_ALTAR"], "subtypes": []}])
     assert shadowing_rules([show_altars], 1) == [] and shadowing_rules([show_altars], 1, altar=True) == ["#1 altars"]
+
+
+def test_extra_rulesets_make_rules_of_their_own():
+    kinds, altar = list(KINDS.values()), altar_kind(DATA)
+    opts = parse_options({"picks": {"IDOL_1x3/Sentinel": [{"affixes": [197, 105], "min": 1}, {"affixes": [], "min": 2},
+                                                          {"affixes": [197, 105], "min": 2}],
+                                    "IDOL_1x1_ETERRA": [{"affixes": [110, 111], "min": 2}]},
+                          "altar": [{"bases": [1], "affixes": []}, {"bases": [0], "affixes": [1088]}]})
+    plan = plan_idols(opts, kinds, altar)
+    assert [r.name for r in plan.rules] == [
+        "[I] ------- IDOLS (auto) -------",
+        "[I] 1x1 Small idol - 2+ of 2 wanted affixes",
+        "[I] 1x3 Sentinel idol #3 - 2+ of 2 wanted affixes",    # numbered as its ruleset; the empty one makes none;
+        "[I] 1x3 Sentinel idol - 1+ of 2 wanted affixes",       # needing both first: an idol with both gets their look
+        "[I] Idol altar - preferred altars",
+        "[I] Idol altar #2 - preferred altars with 1+ of 1 preferred affixes",
+        "[I] Idol altar - all other altars"]                    # once, below every altar ruleset
+    assert plan.rules[2].affix_min == 2 and plan.rules[2].spec.emphasized and not plan.rules[3].spec.emphasized
+    assert plan.rules[5].sub_types == [0] and plan.rules[5].affix_ids == [1088]
+    # read back: one ruleset per rule, in their rulesets' order (empty ones aren't in the filter)
+    got = read_picks(parse_rule_blocks([render_rule(r) for r in plan.rules]), "[I] ", kinds)
+    assert got["picks"] == {"IDOL_1x1_ETERRA": [{"affixes": [110, 111], "min": 2}],
+                            "IDOL_1x3/Sentinel": [{"affixes": [197, 105], "min": 1}, {"affixes": [197, 105], "min": 2}]}
+    assert got["altar"] == [{"bases": [1], "affixes": []}, {"bases": [0], "affixes": [1088]}] and got["show_other_altars"]
+    # an empty altar ruleset beside a picked one makes no rule; none picked: no altar rules at all
+    one = plan_idols(parse_options({"altar": [{"bases": [], "affixes": []}, {"bases": [1], "affixes": []}]}), kinds, altar)
+    assert [r.name for r in one.rules][1:] == ["[I] Idol altar #2 - preferred altars", "[I] Idol altar - all other altars"]
+    assert plan_idols(parse_options({"altar": [{"bases": [], "affixes": []}] * 2}), kinds, altar).rules == []
+    # the same stale pick in two rulesets warns once
+    stale = plan_idols(parse_options({"picks": {"IDOL_2x1": [{"affixes": [999, 1070]}, {"affixes": [999]}]}}), kinds)
+    assert len(stale.rules) == 2 and stale.warnings == ["2x1 Humble: 1 picked affixes can't roll on it; left out"]
+
+
+def test_duplicate_and_covered_rulesets_make_no_rules():
+    kinds, altar = list(KINDS.values()), altar_kind(DATA)
+    sets = [{"affixes": [105, 197], "min": 2},
+            {"affixes": [197, 105], "min": 2},          # ruleset 1 again (Duplicate pressed, left as it was)
+            {"affixes": [105, 197, 999], "min": 2},     # the same once the affix that can't roll is left out
+            {"affixes": [105], "min": 1},
+            {"affixes": [105, 197], "min": 1},          # takes ruleset 4's idols too: 4 goes
+            {"affixes": [105], "min": 2}]               # one affix: needs 1, inside ruleset 5
+    plan = plan_idols(parse_options({"picks": {"IDOL_1x3/Sentinel": sets}}), kinds)
+    assert [r.name for r in plan.rules[1:]] == ["[I] 1x3 Sentinel idol - 2+ of 2 wanted affixes",
+                                                "[I] 1x3 Sentinel idol #5 - 1+ of 2 wanted affixes"]
+    said = "1x3 Sentinel: ruleset {} makes no rule of its own: ruleset {} already shows everything it would"
+    assert [w for w in plan.warnings if "ruleset" in w] == [said.format(2, 1), said.format(3, 1), said.format(4, 5),
+                                                             said.format(6, 5)]
+    # needing both is a different look: not covered by a ruleset taking one of more affixes, and above it
+    both = plan_idols(parse_options({"picks": {"IDOL_1x3/Sentinel": [{"affixes": [105, 197, 300], "min": 1},
+                                                                    {"affixes": [105, 197], "min": 2}]}}), kinds).rules
+    assert [r.affix_min for r in both[1:]] == [2, 1] and both[1].name.endswith("idol #2 - 2+ of 2 wanted affixes")
+    got = read_picks(parse_rule_blocks([render_rule(r) for r in both]), "[I] ", kinds)["picks"]["IDOL_1x3/Sentinel"]
+    assert got == [{"affixes": [105, 197], "min": 1}, {"affixes": [105, 197], "min": 2}]   # by number, not rule order
+    # altars: empty = any; identical ones and ones a wider ruleset covers make no rule
+    picks = [{"bases": [1], "affixes": [1088]}, {"bases": [1], "affixes": []}, {"bases": [0, 1], "affixes": [1088]},
+             {"bases": [], "affixes": [1104]}, {"bases": [1], "affixes": [1104, 1088]}, {"bases": [1], "affixes": []}]
+    plan = plan_idols(parse_options({"altar": picks}), kinds, altar)
+    assert [r.name for r in plan.rules[1:]] == ["[I] Idol altar #2 - preferred altars",
+                                                "[I] Idol altar #3 - preferred altars with 1+ of 1 preferred affixes",
+                                                "[I] Idol altar #4 - 1+ of 1 preferred affixes",
+                                                "[I] Idol altar - all other altars"]
+    assert [w.split(":")[1].strip() for w in plan.warnings] == ["ruleset 1 makes no rule of its own", "ruleset 5 makes no rule of its own",
+                                                                "ruleset 6 makes no rule of its own"]
+    assert "ruleset 2 already" in plan.warnings[0] and "ruleset 2 already" in plan.warnings[2]
+
+
+def test_options_before_rulesets_still_load():
+    """Picks kept before rulesets (one table per kind, one altar table): read as one ruleset each."""
+    opts = parse_options({"picks": {"IDOL_2x1": {"affixes": [110]}}, "altar": {"bases": [1], "affixes": [1088]}})
+    assert opts.picks == {"IDOL_2x1": [{"affixes": [110], "min": 2}]}
+    assert opts.altar == [{"bases": [1], "affixes": [1088]}]
+    assert parse_options({}).altar == [{"bases": [], "affixes": []}] == parse_options({"altar": []}).altar
 
 
 def test_option_errors():
@@ -184,3 +256,7 @@ def test_option_errors():
         parse_options({"pick": {}})
     with pytest.raises(ConfigError, match="idol altar"):
         parse_options({"altar": {"base": []}})
+    with pytest.raises(ConfigError, match="min must be 1 or 2"):
+        parse_options({"picks": {"IDOL_2x1": [{"affixes": [1]}, {"affixes": [1], "min": 0}]}})
+    with pytest.raises(ConfigError, match="idol altar"):
+        parse_options({"altar": [{"bases": []}, {"base": []}]})

@@ -67,7 +67,18 @@ def place(items: list, infos: list[RuleInfo], new: list, prefix: str, section: s
 # reorder_generated puts it back): place() keyword arguments.
 IDOL_PLACEMENT = {"section": "IDOL", "before": "UNIQUE", "fallback": "top"}   # right before the uniques
 LEVELING_PLACEMENT = {"section": "LEVELING", "fallback": "bottom"}   # above the bottom hide-everything rule
+# The leveling generator's endgame rares: right below the exalted & legendary section, else before the uniques
+ENDGAME_PLACEMENT = {"section": "ENDGAME", "after": "EXALTED", "before": "UNIQUE", "fallback": "bottom"}
 BIS_PLACEMENT = {"section": "BIS", "fallback": "top"}
+
+
+def place_leveling(items: list, infos, leveling: list, endgame: list, prefix: str, endgame_prefix: str) -> tuple[list, int, int]:
+    """items with the leveling section and its endgame rares section (by their prefixes) replaced by the new
+    ones, each where its placement says; infos(items) -> their RuleInfos. Returns (items, rules removed,
+    position of the leveling section)."""
+    out, gone, _ = place(items, infos(items), endgame, endgame_prefix, **ENDGAME_PLACEMENT)
+    out, removed, at = place(out, infos(out), leveling, prefix, **LEVELING_PLACEMENT)
+    return out, gone + removed, at
 
 
 # The top of a filter: the always-show rules, the shatter section (above the class hide rules, so
@@ -154,12 +165,13 @@ def place_uniques(rules: list[dict], prefix: str, skip_names) -> list[dict]:
 
 def reorder_generated(rules: list[dict], prefixes: dict[str, str], top_names=(), hide_names=()) -> tuple[list[dict], list[str]]:
     """The generated sections moved back to where they belong: the unique & set block (prefixes
-    "uniques", see place_uniques) first, then BiS rules, the idol section, the leveling section
-    ({"bis", "idols", "leveling"} -> rule name prefix; see the placements), each only when the
+    "uniques", see place_uniques) first, then BiS rules, the idol section, the leveling section and
+    its endgame rares ({"bis", "idols", "leveling", "endgame"} -> rule name prefix; see the placements), each only when the
     filter has that spot; then the shatter section and the class hide rules to the top (see
     above). Returns (rules, labels of what moved)."""
     placements = (("BiS rules", prefixes.get("bis"), BIS_PLACEMENT), ("idol section", prefixes.get("idols"), IDOL_PLACEMENT),
-                  ("leveling section", prefixes.get("leveling"), LEVELING_PLACEMENT))
+                  ("leveling section", prefixes.get("leveling"), LEVELING_PLACEMENT),
+                  ("endgame rares section", prefixes.get("endgame"), ENDGAME_PLACEMENT))
     out, moved = list(rules), []
     if prefixes.get("uniques"):
         new = place_uniques(out, prefixes["uniques"], set(top_names) | set(hide_names))

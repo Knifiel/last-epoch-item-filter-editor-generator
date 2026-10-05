@@ -41,7 +41,8 @@ def _condition_bits(rule) -> str:
     if rule.rarity:
         bits.append(rule.rarity)
     if rule.affix_ids:
-        bits.append(f"{rule.affix_min}+ of {len(rule.affix_ids)} affixes")
+        bits.append(f"{rule.affix_min}+ of {len(rule.affix_ids)} affixes" + (f" T{rule.affix_tier}+" if rule.affix_tier else "")
+                    + (f", tiers adding up to {rule.affix_sum}+" if rule.affix_sum else ""))
     if rule.char_level:
         bits.append(f"character level {rule.char_level[0]}-{rule.char_level[1]}")
     return "; ".join(bits)
@@ -53,6 +54,10 @@ def leveling_markdown(lev: LevelingPlan, data: dict) -> str:
     out += [f"- warning: {w}" for w in lev.warnings]
     out += ["| rule | conditions | look |", "|---|---|---|"]
     out += [f"| {r.name} | {_condition_bits(r) or '-'} | {_rule_style(r)} |" for r in lev.rules]
+    if lev.endgame:
+        out += ["", "### Endgame rares (their own section, right below the exalted rules)", "",
+                "| rule | conditions | look |", "|---|---|---|"]
+        out += [f"| {r.name} | {_condition_bits(r) or '-'} | {_rule_style(r)} |" for r in lev.endgame]
     if lev.windows:
         out += ["", "### Weapon / off-hand bases by character level", ""]
         for t, windows in lev.windows.items():

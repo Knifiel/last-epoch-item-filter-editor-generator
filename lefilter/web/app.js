@@ -51,7 +51,7 @@ const S = {
   sel: -1, search: "", lvl: { on: false, level: 1 },
   undo: [], redo: [],
   lev: { opts: null, result: null, error: null },
-  idol: { opts: null, classes: null, sel: null, search: "", result: null, error: null },
+  idol: { opts: null, classes: null, sel: null, drawn: null, search: [], result: null, error: null },
   bis: { opts: null, sel: "weapons", search: "", result: null, error: null },
   test: { item: null, result: null },
 };
@@ -405,6 +405,41 @@ function todoNote(r) {
   return note && (r.enabled ? note : tx("{note}, then switch it on", { note }));
 }
 
+/** A rule's conditions as one comparable text: the game needs all of them, so neither their order nor the order
+ *  of the items in their lists matters. A rule last saved by an old game version may keep its level range in the
+ *  deprecated fields: the game makes it a character level condition when it loads the filter. */
+function conditionsKey(r) {
+  const norm = (v) => (Array.isArray(v) ? v.map((x) => JSON.stringify(norm(x))).sort()
+    : v && typeof v === "object" ? Object.keys(v).sort().map((k) => [k, norm(v[k])]) : v);
+  const old = r.level_dependent && !r.conditions.some((c) => c.type === "CharacterLevelCondition");
+  return JSON.stringify(norm(old ? [...r.conditions, { type: "CharacterLevelCondition", min: r.min_lvl, max: r.max_lvl }] : r.conditions));
+}
+
+/** For each rule, the index of an enabled rule above it with the same conditions - that one decides first, so
+ *  this one never applies - else -1. Rules without conditions (section headers) aren't compared. */
+function duplicateRules(rules) {
+  const first = new Map();
+  return rules.map((r, i) => {
+    if (isRaw(r) || isSeparator(r)) return -1;
+    const k = conditionsKey(r);
+    const above = first.get(k) ?? -1;
+    if (above < 0 && r.enabled) first.set(k, i);
+    return above;
+  });
+}
+const DUPLICATE_NOTE = tk("Same conditions as rule {n} above, which decides first: this rule never applies.");
+
+/** The selected rule's duplicate note in the rule editor (the list redraws it: an edit can make or end one). */
+function renderDupNote(dups) {
+  const box = $("#dup-note");
+  if (!box || !S.doc) return;
+  const dup = dups[S.sel] ?? -1;
+  fill(box, dup < 0 ? null : h("div", { class: "todo-note" },
+    h("span", { class: "badge miss" }, tx("duplicate of #{n}", { n: dup + 1 })),
+    h("span", {}, tx(DUPLICATE_NOTE, { n: dup + 1 })),
+    h("button", { onclick: () => { S.sel = dup; renderList(); renderEditor(); scrollToSel(); } }, tx("Go to rule {n}", { n: dup + 1 }))));
+}
+
 function activeAt(r, level) {
   if (isRaw(r)) return true;
   return r.conditions.every((c) => c.type !== "CharacterLevelCondition" || c.raw || (level >= c.min && level <= c.max));
@@ -650,7 +685,7 @@ function newFilter() {
   const nameIn = h("input", { value: tx("New filter"), size: 34 });
   const clsSel = h("select", {}, h("option", { value: "" }, tx("none (class rules stay off)")),
     S.meta.enums.classes.map((c) => h("option", { value: c, selected: c === last.character_class }, className(c))));
-  const hasPicks = Object.keys(idolOpts().picks || {}).length > 0 || altarPicked(idolOpts());
+  const hasPicks = Object.values(idolOpts().picks).some(kindPicked) || altarPicked(idolOpts());
   const classIcons = S.meta.enums.class_icons;
   const icon = { icon: classIcons[last.character_class] ?? last.icon ?? 0, color: last.icon_color ?? 0, picked: false };
   let picker = null;
@@ -679,7 +714,7 @@ function newFilter() {
     const options = { name: nameIn.value.trim() || tx("New filter"), character_class: clsSel.value,
       add_leveling: flags.add_leveling, leveling: levBody(clsSel.value || levOpts().character_class),
       icon: icon.icon, icon_color: icon.color };
-    if (flags.add_idols) options.idols = idolOpts();
+    if (flags.add_idols) options.idols = idolBody();
     if (flags.add_bis) options.bis = bisOpts();
     try {
       const res = await api("/api/new", { options });
@@ -778,20 +813,32 @@ const uniquesOnly = (doc) => /\[auto-uniques/.test(doc?.header?.description || "
 function renderDocNotice() {
   const box = $("#doc-notice");
   box.replaceChildren();
-  const todo = S.doc ? S.doc.rules.flatMap((r, i) => (todoNote(r) ? [i] : [])) : [];
-  if (todo.length) {
-    // the next one below the selected rule (from the top again after the last), among the rules the name filter shows
-    const q = S.search.toLowerCase();
-    const shown = todo.filter((i) => !q || (S.doc.rules[i].name || "").toLowerCase().includes(q));
+  // the Next button: the next one below the selected rule (from the top again after the last), among the rules the
+  // name filter shows
+  const q = S.search.toLowerCase();
+  const nextButton = (list, title) => {
+    const shown = list.filter((i) => !q || (S.doc.rules[i].name || "").toLowerCase().includes(q));
     const next = () => {
       S.sel = shown.find((i) => i > S.sel) ?? shown[0];
       renderList(); renderEditor(); scrollToSel();
     };
+    return h("button", { disabled: !shown.length, title: shown.length ? title : tx("None of them matches the name filter"), onclick: next }, tx("Next ▸"));
+  };
+  const todo = S.doc ? S.doc.rules.flatMap((r, i) => (todoNote(r) ? [i] : [])) : [];
+  if (todo.length) {
     put(box, h("div", { class: "todo-notice" },
       h("span", { class: "badge todo" }, tx("to fill in")),
       h("span", {}, txn(todo.length, "{n} rule to fill in for your build - optional: the filter works without it.",
         "{n} rules to fill in for your build - optional: the filter works without them.")),
-      h("button", { disabled: !shown.length, title: shown.length ? tx("Select the next rule to fill in") : tx("None of them matches the name filter"), onclick: next }, tx("Next ▸"))));
+      nextButton(todo, tx("Select the next rule to fill in"))));
+  }
+  const dups = S.doc ? duplicateRules(S.doc.rules).flatMap((d, i) => (d >= 0 ? [i] : [])) : [];
+  if (dups.length) {
+    put(box, h("div", { class: "todo-notice" },
+      h("span", { class: "badge miss" }, tx("duplicate")),
+      h("span", {}, txn(dups.length, "{n} rule has the same conditions as an enabled rule above it: it never applies.",
+        "{n} rules have the same conditions as an enabled rule above them: they never apply.")),
+      nextButton(dups, tx("Select the next duplicate rule"))));
   }
   if (!uniquesOnly(S.doc)) return;
   put(box, h("div", { class: "box notice" },
@@ -864,7 +911,7 @@ async function reorderSections() {
   if (!S.doc) return;
   try {
     const res = await api("/api/reorder", { rules: S.doc.rules,
-      prefixes: { idols: idolOpts().rule_prefix, leveling: levOpts().rule_prefix } });
+      prefixes: { idols: idolOpts().rule_prefix, leveling: levOpts().rule_prefix, endgame: levOpts().endgame_prefix } });
     if (!res.moved.length) { toast(tx("The generated sections are already in their places.")); return; }
     mutate(() => { S.doc.rules = res.rules; clampSel(); }, { editor: true });
     toast(tx("Moved back into place: {sections}. Undo with Ctrl+Z; save to keep it.", { sections: res.moved.map(txServer).join(", ") }));
@@ -916,20 +963,33 @@ function generatorAffixUses(id) {
       keptNote: tx("the only affix those slots list: kept (without it they'd show their bases whatever their affixes)"), changed: bisChanged,
       remove: () => { for (const [, s] of edit) s.affixes = s.affixes.filter((x) => x !== id); } });
   }
-  // Idols: the idol kinds and the altar listing it (an idol kind left with no affix gets no rules)
+  // Idols: the idol kinds' and the altar's rulesets listing it (a ruleset left with no affix goes: it makes no rule)
   const io = idolOpts();
-  const kinds = Object.entries(io.picks || {}).filter(([, p]) => p.affixes?.includes(id));
-  const inAltar = !!io.altar?.affixes?.includes(id);
-  if (kinds.length || inAltar) {
-    const altarSole = inAltar && io.altar.affixes.length === 1 && io.altar.bases.length > 0;
+  const kinds = Object.entries(io.picks).flatMap(([k, sets]) => sets.map((p, i) => [k, sets, i]).filter(([, , i]) => sets[i].affixes.includes(id)));
+  const altars = io.altar.map((a, i) => [a, i]).filter(([a]) => a.affixes.includes(id));
+  const altarSole = ([a]) => a.affixes.length === 1 && a.bases.length > 0;
+  if (kinds.length || altars.length) {
+    const altarLabel = ([, i]) => rulesetLabel(tx("Idol altar"), i, io.altar.length);
     out.push({ tab: "idols", short: tx("Idols"), label: tx("Idols tab"),
-      edit: [...kinds.map(([k, p]) => (idolKind(k)?.label || k) + (p.affixes.length === 1 ? " " + tx("(its only affix: no rules for it then)") : "")),
-        ...(inAltar && !altarSole ? [tx("Idol altar")] : [])],
-      kept: altarSole ? [tx("Idol altar")] : [], changed: idolChanged,
+      edit: [...kinds.map(([k, sets, i]) => rulesetLabel(idolKind(k)?.label || k, i, sets.length)
+        + (sets[i].affixes.length === 1 ? " " + tx("(its only affix: no rules for it then)") : "")),
+      ...altars.filter((x) => !altarSole(x)).map(altarLabel)],
+      kept: altars.filter(altarSole).map(altarLabel), changed: idolChanged,
       keptNote: tx("the only affix the preferred altars list: kept (without it they'd be its bases whatever their affixes)"),
       remove: () => {
-        for (const [k, p] of kinds) { p.affixes = p.affixes.filter((x) => x !== id); if (!p.affixes.length) delete io.picks[k]; }
-        if (inAltar && !altarSole) io.altar.affixes = io.altar.affixes.filter((x) => x !== id);
+        const emptied = new Set();
+        for (const [, sets, i] of kinds) {
+          sets[i].affixes = sets[i].affixes.filter((x) => x !== id);
+          if (!sets[i].affixes.length) emptied.add(sets[i]);
+        }
+        for (const [k, sets] of Object.entries(io.picks)) setKindPicks(io, k, sets.filter((p) => !emptied.has(p)));
+        S.idol.search = [];
+        for (const [a] of altars.filter((x) => !altarSole(x))) {
+          a.affixes = a.affixes.filter((x) => x !== id);
+          if (!a.bases.length && !a.affixes.length) emptied.add(a);
+        }
+        io.altar = io.altar.filter((a) => !emptied.has(a));
+        if (!io.altar.length) io.altar.push(NEW_ALTAR());
       } });
   }
   return out;
@@ -945,8 +1005,8 @@ function generatorAffixIds() {
   }
   for (const s of Object.values(bisOpts().slots || {})) (s.affixes || []).forEach((x) => ids.add(x));
   const io = idolOpts();
-  for (const p of Object.values(io.picks || {})) (p.affixes || []).forEach((x) => ids.add(x));
-  (io.altar?.affixes || []).forEach((x) => ids.add(x));
+  for (const sets of Object.values(io.picks)) for (const p of sets) p.affixes.forEach((x) => ids.add(x));
+  for (const a of io.altar) a.affixes.forEach((x) => ids.add(x));
   return ids;
 }
 
@@ -1217,6 +1277,8 @@ function renderList() {
   renderDocNotice();
   if (!S.doc) { put(ol, h("li", { class: "empty" }, tx("Choose a filter above, or start a new one."))); return; }
   const q = S.search.toLowerCase();
+  const dups = duplicateRules(S.doc.rules);
+  renderDupNote(dups);
   S.doc.rules.forEach((r, i) => {
     if (q && !(r.name || "").toLowerCase().includes(q)) return;
     const raw = isRaw(r);
@@ -1227,6 +1289,8 @@ function renderList() {
     if (S.lvl.on && !raw && r.enabled && !activeAt(r, S.lvl.level)) cls.push("inactive");
     const todo = todoNote(r);
     if (todo) cls.push("todo");
+    const dup = dups[i];
+    if (dup >= 0) cls.push("dup");
     const badge = raw ? h("span", { class: "badge" }, tx("RAW"))
       : isSeparator(r) ? null : h("span", { class: "badge " + (r.type === "HIDE" ? "hide" : "show") }, tx(r.type === "HIDE" ? "HIDE" : "SHOW"));
     const li = h("li", {
@@ -1257,6 +1321,7 @@ function renderList() {
     ruleSwatch(r),
     h("div", { class: "rule-main" },
       h("div", { class: "rule-name", title: r.name }, todo ? h("span", { class: "badge todo", title: tx("Optional, for your build: {what}", { what: todo }) }, tx("to fill in")) : null,
+        dup >= 0 ? h("span", { class: "badge miss", title: tx(DUPLICATE_NOTE, { n: dup + 1 }) }, tx("duplicate of #{n}", { n: dup + 1 })) : null,
         badge, r.name || (raw ? tx("(unrecognised rule, kept as is)") : tx("(unnamed)"))),
       raw || isSeparator(r) ? null : h("div", { class: "rule-chips" }, r.conditions.map((c) => h("span", { class: "chip-s" }, condSummary(c))))));
     put(ol, li);
@@ -1344,7 +1409,9 @@ function renderEditor() {
       h("label", {}, h("input", { type: "checkbox", checked: r.enabled, onchange: (e) => mutate(() => { r.enabled = e.target.checked; }) }), tx("Enabled")),
       isSeparator(r) ? h("span", { class: "hint" }, tx("No conditions: matches every item (a disabled one is just a section header).")) : null),
     todoNote(r) ? h("div", { class: "todo-note" }, h("span", { class: "badge todo" }, tx("to fill in")),
-      h("span", {}, tx("Optional, for your build: {what}.", { what: todoNote(r) }))) : null);
+      h("span", {}, tx("Optional, for your build: {what}.", { what: todoNote(r) }))) : null,
+    h("div", { id: "dup-note" }));
+  renderDupNote(duplicateRules(S.doc.rules));
 
   // appearance
   put(ed, h("h3", {}, tx("Appearance")));
@@ -2203,9 +2270,10 @@ const STYLE_KINDS = [
   ["gear_single", tk("Armour with one build affix (early levels)")],
   ["jewelry", tk("Jewelry / belt with a build affix")],
   ["good_base", tk("Good base, any slot (until the cap)")],
+  ["endgame", tk("Endgame rare: two T5+ build affixes, tiers adding up to 14+")],
 ];
 const STYLE_DEFAULTS = { weapon_affix: { color: 14, emphasized: true }, weapon_base: {}, gear: { color: 13, emphasized: true }, gear_single: {},
-  jewelry: { color: 13 }, good_base: { color: 15, emphasized: true } };
+  jewelry: { color: 13 }, good_base: { color: 15, emphasized: true }, endgame: { color: 12, emphasized: true } };
 const GEAR_ARMOUR = ["HELMET", "BODY_ARMOR", "BOOTS", "GLOVES"];
 const GEAR_JEWELRY = ["BELT", "AMULET", "RING", "RELIC"];
 const TOGGLE_GROUPS = [["damage", tk("Damage type")], ["focus", tk("Build focus")], ["attributes", tk("Attributes")], ["defence", tk("Defence & utility")]];
@@ -2320,6 +2388,10 @@ function renderLevForm() {
     h("div", { class: "row" },
       h("label", {}, tx("Weapon / off-hand windows of"), numInput(o.step, (v) => { o.step = v; levChanged(); }, { min: 1, max: 100, width: "56px" }), tx("levels;")),
       h("label", {}, tx("every rule off from level"), numInput(o.cap, (v) => { o.cap = v; levChanged(); }, { min: 1, max: 100, width: "56px" }))),
+    h("div", { class: "row" }, h("label", {}, tx("Build affixes need one tier more every"),
+      numInput(o.tier_step, (v) => { o.tier_step = v; levChanged(); }, { min: 0, max: 100, width: "56px" }), tx("levels, up to tier"),
+      numInput(o.max_tier, (v) => { o.max_tier = v; levChanged(); }, { min: 1, max: 7, width: "52px" }))),
+    h("p", { class: "hint" }, tx("The tier is the character level divided by that, T1 at first: every 10 levels up to 4 means T2+ from level 20, T3+ from 30, T4+ from 40. 0: any tier.")),
     h("div", { class: "group-label" }, tx("Rarity")),
     h("div", { class: "chips" }, S.meta.enums.rarities.map((r) => chipToggle(capTx(r), o.rarity.includes(r), () => toggleList(o.rarity, r)))),
     h("p", { class: "hint" }, tx("Each kind of gear below picks its own affixes. A toggle adds every ordinary gear affix it names "
@@ -2332,10 +2404,12 @@ function renderLevForm() {
         [["highlight", tk("highlight bases with a build affix, show the rest")], ["require", tk("only bases with a build affix")], ["bases", tk("all bases, ignore affixes")]]
           .map(([v, l]) => h("option", { value: v, selected: v === o.weapon_mode }, tx(l)))))),
     h("p", { class: "hint" }, tx("Bases are batched by level requirement; each batch's rule is on until the next batch takes over.")),
-    sectionAffixes(o, "weapons", toggleList), classAffixPicker(o, "weapons", toggleList), goodBases(o, slots.weapons, toggleList));
+    sectionAffixes(o, "weapons", toggleList), classAffixPicker(o, "weapons", toggleList), goodBases(o, slots.weapons, toggleList),
+    endgameBases(o, slots.weapons, toggleList));
 
   put(f, h("h3", {}, tx("Off-hands")), typeChips(S.meta.enums.offhands, o.offhands),
-    sectionAffixes(o, "offhands", toggleList), classAffixPicker(o, "offhands", toggleList), goodBases(o, slots.offhands, toggleList));
+    sectionAffixes(o, "offhands", toggleList), classAffixPicker(o, "offhands", toggleList), goodBases(o, slots.offhands, toggleList),
+    endgameBases(o, slots.offhands, toggleList));
 
   // armour and jewelry are one rule set each: the heading's checkbox switches it on
   const switchHead = (label, key) => h("h3", {}, h("label", { class: "section-toggle" },
@@ -2345,11 +2419,13 @@ function renderLevForm() {
       h("label", {}, tx("Shown with"), numInput(o.gear_min_affixes, (v) => { o.gear_min_affixes = v; levChanged(); }, { min: 1, max: 4, width: "52px" }), tx("+ build affixes,")),
       h("label", {}, tx("with 1 below level"), numInput(o.single_affix_until, (v) => { o.single_affix_until = v; levChanged(); }, { min: 0, max: 100, width: "56px" }))),
     sectionAffixes(o, "armour", toggleList), classAffixPicker(o, "armour", toggleList), goodBases(o, slots.armour, toggleList),
+    endgameBases(o, slots.armour, toggleList),
   ] : h("p", { class: "hint" }, tx("Off: no rules for helmets, body armours, boots and gloves.")));
 
   put(f, switchHead("Jewelry & belts", "jewelry"), o.jewelry ? [
     h("p", { class: "hint" }, tx("Their base matters little and their best bases come early: each one with a build affix shows until the cap.")),
     sectionAffixes(o, "jewelry", toggleList), classAffixPicker(o, "jewelry", toggleList), goodBases(o, slots.jewelry, toggleList),
+    endgameBases(o, slots.jewelry, toggleList),
   ] : h("p", { class: "hint" }, tx("Off: no rules for amulets, rings, relics and belts.")));
 
   put(f, h("h3", {}, tx("Look")));
@@ -2485,19 +2561,34 @@ function classAffixPicker(o, s, toggleList) {
 
 /** Good bases for the item types in use: other classes' bases stay in the list (the defaults name every class's good relics) but aren't shown or used. */
 function goodBases(o, types, toggleList) {
+  return basePicks(o, types, toggleList, { key: "good_bases", open: "openGood", label: tk("Good bases"), none: tk("none"),
+    title: tk("Each type's ticked bases get their own rule above the rest - still with a build affix, but on until the cap. Class bases count only for the chosen class."),
+    offered: (s) => s.level < o.cap });
+}
+
+/** Endgame bases for the item types in use: every base the class can find; none ticked, the type's endgame rare rule takes any. */
+function endgameBases(o, types, toggleList) {
+  return basePicks(o, types, toggleList, { key: "endgame_bases", open: "openEndgame", label: tk("Endgame bases"), none: tk("any base"),
+    title: tk("Each type's endgame rare rule takes only the ticked bases (none ticked: any base). Class bases count only for the chosen class."),
+    offered: () => true });
+}
+
+/** Per item type in use, its bases (droppable ones that `offered` takes, and the ticked ones) as chips ticking o[key][type]. */
+function basePicks(o, types, toggleList, { key, open, label, none, title, offered }) {
   if (!types.length) return null;
   const cls = S.meta.enums.classes.indexOf(o.character_class);
-  return h("div", {}, h("div", { class: "group-label", title: tx("Each type's ticked bases get their own rule above the rest - still with a build affix, but on until the cap. Class bases count only for the chosen class.") }, tx("Good bases")),
+  const table = (o[key] ||= {});
+  return h("div", {}, h("div", { class: "group-label", title: tx(title) }, tx(label)),
     types.map((t) => {
-      const good = (o.good_bases[t] ||= []);
+      const picked = (table[t] ||= []);
       const subs = [...(M.base.get(t)?.subtypes || [])]
-        .filter((s) => (cls < 0 || !s.class || s.class & (1 << cls)) && (good.includes(s.en_name) || (s.drops && s.level < o.cap)))
+        .filter((s) => (cls < 0 || !s.class || s.class & (1 << cls)) && (picked.includes(s.en_name) || (s.drops && offered(s))))
         .sort((a, b) => a.level - b.level || a.id - b.id);
-      const names = subs.filter((s) => good.includes(s.en_name)).map((s) => s.name);
-      return h("details", { class: "good-bases", open: S.lev.openGood?.has(t) || null,
-        ontoggle: (e) => { (S.lev.openGood ||= new Set())[e.target.open ? "add" : "delete"](t); } },
-      h("summary", {}, typeName(t), h("span", { class: "hint" }, ` · ${names.length ? names.join(", ") : tx("none")}`)),
-      h("div", { class: "chips" }, subs.map((s) => withBaseTip(chipToggle(s.name, good.includes(s.en_name), () => toggleList(good, s.en_name), `${s.level}`), t, s))));
+      const names = subs.filter((s) => picked.includes(s.en_name)).map((s) => s.name);
+      return h("details", { class: "good-bases", open: S.lev[open]?.has(t) || null,
+        ontoggle: (e) => { (S.lev[open] ||= new Set())[e.target.open ? "add" : "delete"](t); } },
+      h("summary", {}, typeName(t), h("span", { class: "hint" }, ` · ${names.length ? names.join(", ") : tx(none)}`)),
+      h("div", { class: "chips" }, subs.map((s) => withBaseTip(chipToggle(s.name, picked.includes(s.en_name), () => toggleList(picked, s.en_name), `${s.level}`), t, s))));
     }));
 }
 
@@ -2514,7 +2605,8 @@ function showToml() {
   for (const [s] of LEV_SECTIONS) o[sectionKey(s)] = { ...o[sectionKey(s)], exclude: named(o[sectionKey(s)]?.exclude) };
   o.style = Object.fromEntries(Object.entries(o.style || {}).map(([k, st]) => [k, st.color === null ? { ...st, color: -1 } : st]));   // -1: no recolour
   const keys = ["rule_prefix", "header", "character_class", "class_affixes", ...LEV_SECTIONS.map(([s]) => sectionKey(s)), "weapons", "offhands", "step", "cap",
-    "weapon_mode", "armour", "jewelry", "gear_min_affixes", "single_affix_until", "good_bases", "rarity", "style"];
+    "weapon_mode", "armour", "jewelry", "gear_min_affixes", "single_affix_until", "tier_step", "max_tier", "good_bases", "endgame_bases",
+    "endgame_prefix", "endgame_header", "rarity", "style"];
   const text = ["[leveling]", "enabled = true", ...keys.map((k) => `${k} = ${tomlVal(o[k] ?? "")}`)].join("\n");
   const dlg = $("#dlg");
   const ta = h("textarea", { value: text, style: { minHeight: "320px", minWidth: "560px" } });
@@ -2542,15 +2634,23 @@ function timeline(res, o) {
         style: { left: pct(w.min), width: `calc(${pct(w.max + 1 - w.min)} - 2px)`, background: colors[i % colors.length] },
       }, w.bases.map((b) => subName(t, b)).join(", "))), cursor())));
   }
+  const rows = new Map();   // rule kind (its name without tier and levels) -> its rules, one per level band
   for (const r of res.rules) {
     const st = r.conditions.find((c) => c.type === "SubTypeCondition");
     const lv = r.conditions.find((c) => c.type === "CharacterLevelCondition");
-    // weapon / off-hand windows are drawn above
-    if (!st || !lv || res.windows[st.types[0]]?.some((w) => st.types.length === 1 && w.min === lv.min && w.max === lv.max)) continue;
-    const color = r.recolor ? filterColor(r.color) : "#888";
-    put(wrap, h("div", { class: "tl-row" }, h("div", { class: "tl-name", title: r.name }, r.name.replace(o.rule_prefix, "")),
-      h("div", { class: "tl-bar" }, h("div", { class: "tl-seg", style: { left: pct(lv.min), width: `calc(${pct(lv.max + 1 - lv.min)} - 2px)`, background: color } },
-        (() => { const a = r.conditions.find((c) => c.type === "AffixCondition"); return a ? condSummary(a) : tx("any affixes"); })()), cursor())));
+    // weapon / off-hand windows are drawn above (their affix rules split by tier too)
+    const inWindow = (w) => st.types.length === 1 && w.min <= lv.min && lv.max <= w.max
+      && st.subtypes.length === w.bases.length && w.bases.every((b) => st.subtypes.includes(b.id));
+    if (!st || !lv || res.windows[st.types[0]]?.some(inWindow)) continue;
+    const kind = r.name.replace(o.rule_prefix, "").replace(/( T\d+\+)? \d+-\d+$/, "");
+    if (!rows.has(kind)) rows.set(kind, []);
+    rows.get(kind).push([r, lv]);
+  }
+  for (const [kind, rules] of rows) {
+    put(wrap, h("div", { class: "tl-row" }, h("div", { class: "tl-name", title: kind }, kind),
+      h("div", { class: "tl-bar" }, rules.map(([r, lv]) => h("div", { class: "tl-seg", title: r.name,
+        style: { left: pct(lv.min), width: `calc(${pct(lv.max + 1 - lv.min)} - 2px)`, background: r.recolor ? filterColor(r.color) : "#888" } },
+      (() => { const a = r.conditions.find((c) => c.type === "AffixCondition"); return a ? condSummary(a) : tx("any affixes"); })())), cursor())));
   }
   const ticks = [];
   for (let l = 0; l <= capLvl; l += o.step) ticks.push(h("span", { style: { left: pct(l) } }, l));
@@ -2565,7 +2665,7 @@ function renderLevPreview() {
   if (S.lev.error) { put(p, h("div", { class: "box bad" }, S.lev.error)); return; }
   const res = S.lev.result;
   if (!res) { put(p, h("div", { class: "empty" }, tx("Generating…"))); return; }
-  const n = res.rules.length;
+  const n = res.rules.length + res.endgame.length;
   const total = res.merged ? res.merged.length : null;
   const where = res.merged
     ? (res.removed ? txn(res.removed, "replaces the {n} rule of the previous section", "replaces the {n} rules of the previous section")
@@ -2588,9 +2688,10 @@ function renderLevPreview() {
     updateLevCursor();
   }
 
-  put(p, h("h3", {}, tx("Generated rules (top first)")),
-    h("ul", { class: "gen-rules" }, res.rules.map((r) => h("li", {}, ruleSwatch(r),
-      h("span", {}, r.name), isSeparator(r) ? null : h("span", { class: "rule-chips" }, r.conditions.map((c) => h("span", { class: "chip-s" }, condSummary(c))))))));
+  const ruleList = (rules) => h("ul", { class: "gen-rules" }, rules.map((r) => h("li", {}, ruleSwatch(r),
+    h("span", {}, r.name), isSeparator(r) ? null : h("span", { class: "rule-chips" }, r.conditions.map((c) => h("span", { class: "chip-s" }, condSummary(c)))))));
+  put(p, h("h3", {}, tx("Generated rules (top first)")), ruleList(res.rules),
+    res.endgame.length ? [h("div", { class: "group-label" }, tx("Endgame rares: their own section, right below the exalted & legendary rules")), ruleList(res.endgame)] : null);
 
   put(p, h("h3", {}, tx("Affixes each kind of gear takes, and where they roll")),
     h("p", { class: "hint" }, tx("Untick an affix to leave it out of that gear's rules (and of the Best in slot tab's From the Leveling tab); tick it to bring it back.")));
@@ -2660,12 +2761,13 @@ async function applyLeveling() {
   const res = S.lev.result;
   if (!res?.merged || !S.doc) return;
   if (res.merged.length > S.meta.max_rules) { toast(tx("That would make {n} rules; the game allows {max}. Free up rules first.", { n: res.merged.length, max: S.meta.max_rules }), true); return; }
-  if (!res.rules.length && !res.removed) { toast(tx("Nothing to apply.")); return; }
+  const n = res.rules.length + res.endgame.length;
+  if (!n && !res.removed) { toast(tx("Nothing to apply.")); return; }
   mutate(() => {
     S.doc.rules = res.merged;
-    S.sel = res.position;
+    S.sel = Math.min(res.position, S.doc.rules.length - 1);
   }, { editor: true });
-  toast(txn(res.rules.length, "Leveling section applied: {n} rule at position {at}. Save to keep it.",
+  toast(txn(n, "Leveling section applied: {n} rule at position {at}. Save to keep it.",
     "Leveling section applied: {n} rules at position {at}. Save to keep it.", { at: res.position + 1 }));
   S.lvl.on = true;
   $("#lvl-on").checked = true;
@@ -2682,7 +2784,60 @@ const IDOL_STYLE_KINDS = [["both", tk("Idols with both wanted affixes")], ["sing
 const IDOL_STYLE_DEFAULTS = { both: { color: 15, emphasized: true }, single: { color: 15 },
   altar: { color: 15, emphasized: true, beam_size: "LARGE", beam_color: 19 }, altar_other: { color: 15 } };
 const ALTAR_KEY = "IDOL_ALTAR";
-const altarPicked = (o) => o.altar.bases.length + o.altar.affixes.length > 0;
+// Each idol kind and the altar take one or more rulesets (each makes a rule of its own): picks = {kind key: [{affixes,
+// min}]}, altar = [{bases, affixes}], at least one
+const NEW_PICK = () => ({ affixes: [], min: 2 });
+const NEW_ALTAR = () => ({ bases: [], affixes: [] });
+const kindPicked = (sets) => sets.some((p) => p.affixes.length);
+const altarPicked = (o) => o.altar.some((a) => a.bases.length + a.affixes.length > 0);
+/** An idol kind's rulesets: one empty one when it has none. */
+const kindSets = (o, key) => (o.picks[key]?.length ? o.picks[key] : [NEW_PICK()]);
+/** A kind keeps its rulesets while it has picks or more than one of them. */
+function setKindPicks(o, key, sets) {
+  if (sets.length > 1 || kindPicked(sets) || sets[0]?.folded) o.picks[key] = sets; else delete o.picks[key];
+}
+/** The options as the server takes them: without the editor's folds. */
+function idolBody() {
+  const o = idolOpts();
+  return { ...o, picks: Object.fromEntries(Object.entries(o.picks).map(([k, sets]) => [k, sets.map(({ folded, ...x }) => x)])),
+    altar: o.altar.map(({ folded, ...x }) => x) };
+}
+/** What a kind's ruleset's rule takes - n of these affixes (those rolling on the kind) - or null when it makes none. */
+function pickRule(k, p) {
+  const pool = new Set(k.pool.map((a) => a.id));
+  const ids = [...new Set(p.affixes)].filter((id) => pool.has(id));
+  return ids.length ? { n: ids.length > 1 ? Math.min(p.min, ids.length) : 1, ids: new Set(ids) } : null;
+}
+/** What an altar ruleset's rule takes (bases, affixes: empty = any), or null when it makes none. */
+function altarRule(altar, a) {
+  const bases = new Set(a.bases.filter((id) => altar.bases.some((b) => b.id === id)));
+  const affixes = new Set(a.affixes.filter((id) => altar.pool.some((x) => x.id === id)));
+  return bases.size || affixes.size ? { bases, affixes } : null;
+}
+const within = (a, b) => [...a].every((x) => b.has(x));
+// covers(a, b): every item b's rule shows, a's shows the same way (needing both affixes is another look)
+const pickCovers = (a, b) => a.n === b.n && within(b.ids, a.ids);
+const altarCovers = (a, b) => ["bases", "affixes"].every((f) => !a[f].size || (b[f].size > 0 && within(b[f], a[f])));
+/** The rulesets another one makes pointless, as the generator works it out (they make no rule): Map index ->
+ *  {by: a kept one covering it, same: identical to it}. Of identical ones the first stays. rules: per ruleset. */
+function redundantRulesets(rules, covers) {
+  const made = rules.flatMap((r, i) => (r ? [i] : []));
+  const above = (y, x) => covers(rules[y], rules[x]) && (!covers(rules[x], rules[y]) || y < x);
+  const kept = made.filter((x) => !made.some((y) => y !== x && above(y, x)));
+  return new Map(made.filter((x) => !kept.includes(x)).map((x) => {
+    const by = kept.find((y) => above(y, x));
+    return [x, { by, same: covers(rules[x], rules[by]) }];
+  }));
+}
+/** "1x3 Sentinel · Ruleset 2" when there's more than one, else just the label. */
+const rulesetLabel = (label, i, n) => (n > 1 ? `${label} · ${tx("Ruleset {n}", { n: i + 1 })}` : label);
+/** Picks kept before rulesets (one per kind, one altar table) as rulesets. */
+function idolRulesets(o) {
+  for (const [k, v] of Object.entries(o.picks || {})) o.picks[k] = (Array.isArray(v) ? v : [v]).map((p) => ({ ...NEW_PICK(), ...p }));
+  o.altar = (Array.isArray(o.altar) ? o.altar : o.altar ? [o.altar] : []).map((a) => ({ ...NEW_ALTAR(), ...a }));
+  if (!o.altar.length) o.altar.push(NEW_ALTAR());
+  return o;
+}
 
 /** Stored options merged over the defaults, keeping only keys the server still knows. */
 function withDefaults(defaults, stored) {
@@ -2692,7 +2847,7 @@ function withDefaults(defaults, stored) {
 }
 
 function idolOpts() {
-  if (!S.idol.opts) S.idol.opts = withDefaults(S.meta.idol_defaults, store.get("idol-opts", {}));
+  if (!S.idol.opts) S.idol.opts = idolRulesets(withDefaults(S.meta.idol_defaults, store.get("idol-opts", {})));
   return S.idol.opts;
 }
 function idolClasses() {
@@ -2724,7 +2879,7 @@ const idolsSoon = debounce(runIdols, 250);
 async function runIdols() {
   if (!S.meta) return;
   try {
-    const body = { options: idolOpts() };
+    const body = { options: idolBody() };
     if (S.doc) body.rules = S.doc.rules;
     S.idol.result = await api("/api/idols", body);
     S.idol.error = null;
@@ -2741,9 +2896,23 @@ async function readIdolsFromFilter() {
   try {
     const got = await api("/api/idols/read", { rules: S.doc.rules, prefix: idolOpts().rule_prefix });
     if (got.found) {
-      S.idol.opts.picks = got.picks;
-      S.idol.opts.hide_others = got.hide_others;
-      S.idol.opts.altar = got.altar;
+      // a ruleset read back as it was keeps its fold: matched by the rule it makes (the filter has the affixes
+      // that roll and the affixes needed, e.g. 1 for a one-affix ruleset)
+      const o = S.idol.opts;
+      const ruleText = (r) => (r ? JSON.stringify(Object.values(r).map((v) => (v instanceof Set ? [...v].sort() : v))) : "");
+      const keepFolds = (sets, old, rule) => {
+        const folded = new Set(old.filter((x) => x.folded).map((x) => ruleText(rule(x))));
+        return sets.map((x) => (folded.has(ruleText(rule(x))) ? { ...x, folded: true } : x));
+      };
+      o.picks = Object.fromEntries(Object.entries(got.picks).map(([k, sets]) => {
+        const kind = idolKind(k);
+        return [k, kind ? keepFolds(sets, o.picks[k] || [], (x) => pickRule(kind, x)) : sets];
+      }));
+      if (S.meta.idol_altar) o.altar = keepFolds(got.altar, o.altar, (x) => altarRule(S.meta.idol_altar, x));
+      else o.altar = got.altar;
+      o.hide_others = got.hide_others;
+      idolRulesets(o);
+      S.idol.search = [];
       S.idol.opts.show_other_altars = got.show_other_altars;
       store.set("idol-opts", S.idol.opts);
     }
@@ -2778,7 +2947,7 @@ function renderIdolList() {
     store.set("idol-classes", cl);
     renderIdolList();
   };
-  const picked = Object.keys(o.picks).filter((k) => o.picks[k].affixes.length).length;
+  const picked = Object.values(o.picks).filter(kindPicked).length;
   put(f, h("h3", {}, tx("Class idols to list")),
     h("div", { class: "chips" }, S.meta.enums.classes.map((c) => chipToggle(className(c), idolClasses().includes(c), () => toggleClass(c)))),
     h("p", { class: "hint" }, tx("Sizes are width × height, as in the idol inventory.") + " "
@@ -2786,24 +2955,26 @@ function renderIdolList() {
   for (const [title, , kinds] of idolGroups()) {
     put(f, h("div", { class: "group-label" }, title));
     for (const k of kinds) {
-      const pick = o.picks[k.key];
-      const n = pick ? pick.affixes.length : 0;
+      const used = (o.picks[k.key] || []).filter((p) => p.affixes.length);
+      const n = used.length === 1 ? used[0].affixes.length : 0;
       put(f, h("div", { class: "idol-row" + (S.idol.sel === k.key ? " selected" : ""), onclick: () => { S.idol.sel = k.key; renderIdolList(); renderIdolEditor(); } },
         h("div", { class: "shape-cell" }, idolShape(k.width, k.height)),
         h("div", {}, h("div", {}, k.label), h("div", { class: "bases" }, k.base_names.join(", ") + (k.heretical_names.length ? " + " + tx("heretical") : ""))),
-        h("span", { class: "count" + (n ? " has" : "") }, n ? tx("{n} picked · needs {min}", { n, min: Math.min(pick.min, n) }) : txn(k.pool.length, "{n} affix", "{n} affixes"))));
+        h("span", { class: "count" + (used.length ? " has" : "") }, used.length > 1 ? txn(used.length, "{n} ruleset", "{n} rulesets")
+          : n ? tx("{n} picked · needs {min}", { n, min: Math.min(used[0].min, n) }) : txn(k.pool.length, "{n} affix", "{n} affixes"))));
     }
   }
   const altar = S.meta.idol_altar;
   if (altar) {
-    const nb = o.altar.bases.length, na = o.altar.affixes.length;
+    const used = o.altar.filter((a) => a.bases.length + a.affixes.length);
+    const nb = used[0]?.bases.length, na = used[0]?.affixes.length;
     put(f, h("div", { class: "group-label" }, tx("Idol altars")),
       h("div", { class: "idol-row" + (S.idol.sel === ALTAR_KEY ? " selected" : ""), onclick: () => { S.idol.sel = ALTAR_KEY; renderIdolList(); renderIdolEditor(); } },
         h("div", { class: "shape-cell" }, "◈"),
         h("div", {}, h("div", {}, tx("Idol altar")), h("div", { class: "bases" }, tx("preferred altars + preferred affixes"))),
-        h("span", { class: "count" + (nb || na ? " has" : "") }, nb || na
-          ? `${nb ? txn(nb, "{n} altar", "{n} altars") : tx("any altar")} · ${na ? txn(na, "{n} affix", "{n} affixes") : tx("any affixes")}`
-          : `${txn(altar.bases.length, "{n} altar", "{n} altars")} · ${txn(altar.pool.length, "{n} affix", "{n} affixes")}`)));
+        h("span", { class: "count" + (used.length ? " has" : "") }, used.length > 1 ? txn(used.length, "{n} ruleset", "{n} rulesets")
+          : used.length ? `${nb ? txn(nb, "{n} altar", "{n} altars") : tx("any altar")} · ${na ? txn(na, "{n} affix", "{n} affixes") : tx("any affixes")}`
+            : `${txn(altar.bases.length, "{n} altar", "{n} altars")} · ${txn(altar.pool.length, "{n} affix", "{n} affixes")}`)));
   }
   put(f, h("h3", {}, tx("Other idols")),
     h("label", {}, h("input", { type: "checkbox", checked: o.hide_others, onchange: (e) => { o.hide_others = e.target.checked; idolChanged(); } }),
@@ -2854,33 +3025,107 @@ function renderIdolSummary() {
     h("ul", { class: "gen-rules" }, res.rules.map((r) => h("li", {}, ruleSwatch(r), h("span", {}, r.name))))) : null);
 }
 
+const RULESET_HINT = tk("Each ruleset makes a rule of its own, and an item shows when any of them matches: use several for separate combinations (A + B, or C + D) that one list would mix (A + C).");
+const RULESET_NOASK = "ruleset-delete-noask";   // deleting a ruleset: don't ask first (this browser)
+
+/** Delete a ruleset (remove()): asks first, unless it has no picks or the user said not to ask again. */
+function confirmRulesetDelete(label, empty, remove) {
+  if (empty || store.get(RULESET_NOASK, false)) { remove(); return; }
+  const dlg = $("#dlg");
+  const noAsk = h("input", { type: "checkbox" });
+  const cancel = h("button", { onclick: () => dlg.close() }, tx("Cancel"));
+  fill(dlg, h("h3", {}, tx("Delete this ruleset?")),
+    h("p", {}, h("b", {}, label)),
+    h("p", { class: "hint" }, tx("Its picks go with it; its rule leaves the filter when you apply the tab again.")),
+    h("label", {}, noAsk, " " + tx("Don't ask in the future")),
+    h("div", { class: "row" }, cancel,
+      h("button", { class: "danger", onclick: () => { if (noAsk.checked) store.set(RULESET_NOASK, true); dlg.close(); remove(); } }, tx("Delete"))));
+  dlg.showModal();
+  cancel.focus();
+}
+
+/** A ruleset's bordered block: its head (fold / unfold, Duplicate, ✕ while there's more than one) and, folded,
+ *  a line saying what it picks (details); unfolded, its pickers (body()). */
+function rulesetBox({ i, count, folded, summary, details, body, redundant, onFold, onDuplicate, onDelete }) {
+  const by = redundant && redundant.by + 1;
+  return h("div", { class: "ruleset" + (folded ? " folded" : "") },
+    h("div", { class: "ruleset-head" },
+      h("button", { class: "icon", title: folded ? tx("Expand") : tx("Collapse"), "aria-expanded": String(!folded), onclick: onFold }, folded ? "▸" : "▾"),
+      h("b", { onclick: onFold }, tx("Ruleset {n}", { n: i + 1 })),
+      redundant ? h("span", { class: "badge miss", title: tx("Ruleset {n} already shows everything this one would, so it makes no rule of its own.", { n: by }) },
+        redundant.same ? tx("same as Ruleset {n}", { n: by }) : tx("covered by Ruleset {n}", { n: by })) : null,
+      folded ? h("span", { class: "ruleset-sum" }, summary) : null,
+      h("span", { class: "spacer" }),
+      h("button", { title: tx("Copy this ruleset right below it"), onclick: onDuplicate }, tx("Duplicate")),
+      count > 1 ? h("button", { class: "icon x", title: tx("Delete this ruleset"), "aria-label": tx("Delete this ruleset"), onclick: onDelete }, "✕") : null),
+    folded ? (details ? h("div", { class: "ruleset-details", title: details }, details) : null)
+      : [redundant ? h("div", { class: "warn ruleset-note" }, "⚠ " + tx("Ruleset {n} already shows everything this one would, so it makes no rule of its own.", { n: by })) : null,
+        body()]);
+}
+
+/** The folds are the editor's own: kept with the picks, no new rules. */
+function idolFolded() {
+  store.set("idol-opts", S.idol.opts);
+  renderIdolEditor();
+}
+
 function renderIdolEditor() {
   const p = $("#idol-editor");
+  const top = S.idol.drawn === S.idol.sel ? p.scrollTop : 0;   // the same kind redrawn: stay where it was
+  drawIdolEditor(p);
+  S.idol.drawn = S.idol.sel;
+  p.scrollTop = top;
+}
+
+function drawIdolEditor(p) {
   fill(p, h("div", { class: "box sticky", id: "idol-summary" }));
   renderIdolSummary();
   const o = idolOpts();
   if (S.idol.sel === ALTAR_KEY && S.meta.idol_altar) { renderAltarEditor(p, o); return; }
   const k = idolKind(S.idol.sel);
   if (!k) { put(p, h("div", { class: "empty" }, tx("Pick an idol kind or the idol altar on the left to choose what you want on it."))); return; }
-  const pick = o.picks[k.key] || { affixes: [], min: 2 };
-  const save = (next) => {
-    if (next.affixes.length) o.picks[k.key] = next; else delete o.picks[k.key];
-    idolChanged();
-  };
-  const chosen = new Set(pick.affixes);
-  const toggle = (id) => save({ ...pick, affixes: chosen.has(id) ? pick.affixes.filter((x) => x !== id) : [...pick.affixes, id] });
+  const sets = kindSets(o, k.key);
+  const saveSets = () => { setKindPicks(o, k.key, sets); idolChanged(); };
+  const redundant = redundantRulesets(sets.map((x) => pickRule(k, x)), pickCovers);
   const groups = new Map();
   for (const a of k.pool) {
     if (!groups.has(a.group)) groups.set(a.group, []);
     groups.get(a.group).push(a);
   }
   for (const list of groups.values()) list.sort((x, y) => compareAffixes(x.id, y.id));
+  put(p,
+    h("div", { class: "idol-head" }, idolShape(k.width, k.height, 18, true),
+      h("div", {}, h("h2", { style: { margin: 0 } }, k.title || tx("{kind} idol", { kind: k.label })),
+        h("div", { class: "hint" }, [k.base_names.join(", "), tx("{w} wide × {h} tall", { w: k.width, h: k.height }),
+          txn(k.pool.length, "{n} possible affix", "{n} possible affixes")].join(" · ")),
+        k.heretical_names.length ? h("div", { class: "hint" }, tx("The rule also covers its crafted heretical version, {names}: pick its Enchanted affixes below (only heretical idols roll them)",
+          { names: k.heretical_names.join(", ") })) : null)),
+    h("p", { class: "hint" }, tx(RULESET_HINT)),
+    sets.map((pick, i) => rulesetBox({
+      i, count: sets.length, folded: !!pick.folded,
+      summary: pick.affixes.length ? tx("{n} picked · needs {min}", { n: pick.affixes.length, min: Math.min(pick.min, pick.affixes.length) }) : tx("Nothing picked yet"),
+      details: pick.affixes.map(affixName).join(", "), redundant: redundant.get(i),
+      onFold: () => { pick.folded = !pick.folded; setKindPicks(o, k.key, sets); idolFolded(); },
+      onDuplicate: () => { sets.splice(i + 1, 0, { ...structuredClone(pick), folded: false }); S.idol.search.splice(i + 1, 0, ""); saveSets(); },
+      onDelete: () => confirmRulesetDelete(rulesetLabel(k.label, i, sets.length), !pick.affixes.length,
+        () => { sets.splice(i, 1); S.idol.search.splice(i, 1); saveSets(); }),
+      body: () => idolRulesetBody(o, k, sets, i, groups, saveSets),
+    })),
+    h("div", { class: "row" }, h("button", { onclick: () => { sets.push(NEW_PICK()); saveSets(); } }, tx("Add Additional Ruleset"))));
+}
+
+/** One ruleset of an idol kind: how many of its picks an idol needs, copying them, the affixes to pick. */
+function idolRulesetBody(o, k, sets, i, groups, saveSets) {
+  const pick = sets[i];
+  const save = (next) => { sets[i] = next; saveSets(); };
+  const chosen = new Set(pick.affixes);
+  const toggle = (id) => save({ ...pick, affixes: chosen.has(id) ? pick.affixes.filter((x) => x !== id) : [...pick.affixes, id] });
   const copyTargets = S.meta.idol_kinds.filter((x) => x.key !== k.key);
   const poolBox = h("div", {});
-  const search = h("input", { type: "search", placeholder: tx("Filter this idol's affixes…"), style: { flex: 1 }, value: S.idol.search || "" });
+  const search = h("input", { type: "search", placeholder: tx("Filter this idol's affixes…"), style: { flex: 1 }, value: S.idol.search[i] || "" });
   const drawPool = () => {
     const q = search.value.trim().toLowerCase();
-    S.idol.search = search.value;
+    S.idol.search[i] = search.value;
     poolBox.replaceChildren();
     for (const [group, list] of groups) {
       const shown = list.filter((a) => !q || [affixName(a.id), a.name, M.affix.get(a.id)?.en_name].some((s) => (s || "").toLowerCase().includes(q)));
@@ -2896,13 +3141,50 @@ function renderIdolEditor() {
   };
   search.addEventListener("input", drawPool);
   drawPool();
-  put(p,
-    h("div", { class: "idol-head" }, idolShape(k.width, k.height, 18, true),
-      h("div", {}, h("h2", { style: { margin: 0 } }, k.title || tx("{kind} idol", { kind: k.label })),
-        h("div", { class: "hint" }, [k.base_names.join(", "), tx("{w} wide × {h} tall", { w: k.width, h: k.height }),
-          txn(k.pool.length, "{n} possible affix", "{n} possible affixes")].join(" · ")),
-        k.heretical_names.length ? h("div", { class: "hint" }, tx("The rule also covers its crafted heretical version, {names}: pick its Enchanted affixes below (only heretical idols roll them)",
-          { names: k.heretical_names.join(", ") })) : null)),
+  // The first ruleset's picks go into the other kind's first ruleset; another ruleset (a narrower combination)
+  // becomes a ruleset of its own there, where enough of its picks roll to keep it as narrow.
+  const copyTo = (target) => {
+    const pool = new Set(target.pool.map((a) => a.id));
+    const add = pick.affixes.filter((id) => pool.has(id));
+    const dest = [...(o.picks[target.key] || [])];
+    if (i === 0) {
+      const prev = dest[0] || { ...NEW_PICK(), min: pick.min };
+      dest[0] = { ...prev, affixes: [...new Set([...prev.affixes, ...add])] };
+    } else {
+      if (add.length < Math.min(pick.min, pick.affixes.length)) return "few";
+      const same = (x) => x.min === pick.min && x.affixes.length === add.length && add.every((id) => x.affixes.includes(id));
+      if (dest.some(same)) return "has";
+      if (!dest.length) dest.push(NEW_PICK());   // it stays an extra ruleset: copying ruleset 1 later doesn't merge into it
+      dest.push({ affixes: add, min: pick.min });
+    }
+    setKindPicks(o, target.key, dest);
+    return add.length;
+  };
+  const copy = () => {
+    if (to.value === "*") {
+      const reached = copyTargets.filter((t) => copyTo(t) > 0);
+      toast(i === 0
+        ? (reached.length ? txn(reached.length, "Picks copied to {n} idol kind, taking the ones that can roll on it",
+          "Picks copied to {n} idol kinds, each taking the ones that can roll on it") : tx("None of the picks can roll on another idol kind"))
+        : (reached.length ? txn(reached.length, "Ruleset copied to {n} idol kind that can roll enough of its picks",
+          "Ruleset copied to {n} idol kinds that can roll enough of its picks") : tx("No other idol kind can roll enough of these picks")));
+      idolChanged();
+      return;
+    }
+    const target = idolKind(to.value);
+    if (!target) { toast(tx("Pick the idol kind to copy to first.")); return; }
+    const n = copyTo(target);
+    toast(n === "few" ? tx("Too few of these picks can roll on {kind}: nothing copied", { kind: target.label })
+      : n === "has" ? tx("{kind} has this ruleset already", { kind: target.label })
+        : i > 0 ? tx("Added to {kind} as a ruleset of its own", { kind: target.label })
+          : txn(pick.affixes.length, "{k} of {n} pick can roll on {kind} and was added there", "{k} of {n} picks can roll on {kind} and were added there",
+            { k: n, kind: target.label }));
+    idolChanged();
+  };
+  const to = h("select", { disabled: !pick.affixes.length }, h("option", { value: "" }, i === 0 ? tx("Copy picks to…") : tx("Copy this ruleset to…")),
+    copyTargets.map((x) => h("option", { value: x.key }, x.label)),
+    h("option", { value: "*" }, tx("every other idol kind")));
+  return [
     h("div", { class: "row" }, tx("Show it when it has"),
       h("div", { class: "seg" }, [1, 2].map((n) => h("button", {
         class: Math.min(pick.min, Math.max(1, pick.affixes.length)) === n ? "on" : "",
@@ -2911,75 +3193,66 @@ function renderIdolEditor() {
       txn(pick.affixes.length, "of the {n} picked affix", "of the {n} picked affixes"), h("span", { class: "hint" }, tx("(idols carry two affixes)"))),
     h("div", { class: "row" },
       h("button", { disabled: !pick.affixes.length, onclick: () => save({ ...pick, affixes: [] }) }, tx("Clear picks")),
-      (() => {   // the copy runs from the button, not on every change of the list
-        const to = h("select", { disabled: !pick.affixes.length }, h("option", { value: "" }, tx("Copy picks to…")),
-          copyTargets.map((x) => h("option", { value: x.key }, x.label)),
-          h("option", { value: "*" }, tx("every other idol kind")));
-        // each target takes the picks that can roll on it (class affixes only reach that class's idols)
-        const copyTo = (target) => {
-          const pool = new Set(target.pool.map((a) => a.id));
-          const prev = o.picks[target.key] || { affixes: [], min: pick.min };
-          const add = pick.affixes.filter((id) => pool.has(id));
-          o.picks[target.key] = { ...prev, affixes: [...new Set([...prev.affixes, ...add])] };
-          if (!o.picks[target.key].affixes.length) delete o.picks[target.key];
-          return add.length;
-        };
-        return [to, h("button", { disabled: !pick.affixes.length, onclick: () => {
-          if (to.value === "*") {
-            const reached = copyTargets.filter((t) => copyTo(t) > 0);
-            toast(reached.length ? txn(reached.length, "Picks copied to {n} idol kind, taking the ones that can roll on it",
-              "Picks copied to {n} idol kinds, each taking the ones that can roll on it")
-              : tx("None of the picks can roll on another idol kind"));
-            idolChanged();
-            return;
-          }
-          const target = idolKind(to.value);
-          if (!target) { toast(tx("Pick the idol kind to copy to first.")); return; }
-          const n = copyTo(target);
-          toast(txn(pick.affixes.length, "{k} of {n} pick can roll on {kind} and was added there", "{k} of {n} picks can roll on {kind} and were added there",
-            { k: n, kind: target.label }));
-          idolChanged();
-        } }, tx("Copy"))];
-      })()),
+      to, h("button", { disabled: !pick.affixes.length, onclick: copy }, tx("Copy"))),   // the copy runs from the button, not on every change of the list
     h("div", { class: "row" }, search),
-    poolBox);
+    poolBox];
 }
 
-/** The idol altar: preferred altar bases and preferred altar affixes, one rule for both. */
+/** The idol altar: its rulesets, each one rule: preferred altar bases and preferred altar affixes. */
 function renderAltarEditor(p, o) {
   const altar = S.meta.idol_altar;
   const base = M.base.get(ALTAR_KEY);
   const altarName = (b) => base?.subtypes.find((s) => s.id === b.id)?.name || b.name;
-  const flip = (list, id) => { const i = list.indexOf(id); if (i >= 0) list.splice(i, 1); else list.push(id); idolChanged(); };
   const groups = new Map();
   for (const a of altar.pool) {
     if (!groups.has(a.group)) groups.set(a.group, []);
     groups.get(a.group).push(a);
   }
   for (const list of groups.values()) list.sort((x, y) => compareAffixes(x.id, y.id));
+  const picked = (a) => a.bases.length + a.affixes.length > 0;
+  const redundant = redundantRulesets(o.altar.map((a) => altarRule(altar, a)), altarCovers);
   put(p,
     h("div", { class: "idol-head" }, h("div", {}, h("h2", { style: { margin: 0 } }, tx("Idol altar")),
       h("div", { class: "hint" }, tx("One rule, with a beam: the preferred altars with at least one of the preferred affixes. Leave a list empty to take any altar / any affix.")))),
     h("label", {}, h("input", { type: "checkbox", checked: o.show_other_altars, onchange: (e) => { o.show_other_altars = e.target.checked; idolChanged(); } }),
       " " + tx("Below it, show every other altar (plainer look)")),
+    h("p", { class: "hint" }, tx(RULESET_HINT)),
+    o.altar.map((a, i) => rulesetBox({
+      i, count: o.altar.length, folded: !!a.folded,
+      summary: picked(a) ? `${a.bases.length ? txn(a.bases.length, "{n} altar", "{n} altars") : tx("any altar")} · ${a.affixes.length ? txn(a.affixes.length, "{n} affix", "{n} affixes") : tx("any affixes")}`
+        : tx("Nothing picked yet"),
+      details: [a.bases.map((id) => altarName(altar.bases.find((b) => b.id === id) || { id, name: String(id) })).join(", "),
+        a.affixes.map(affixName).join(", ")].filter(Boolean).join(" · "), redundant: redundant.get(i),
+      onFold: () => { a.folded = !a.folded; idolFolded(); },
+      onDuplicate: () => { o.altar.splice(i + 1, 0, { ...structuredClone(a), folded: false }); idolChanged(); },
+      onDelete: () => confirmRulesetDelete(rulesetLabel(tx("Idol altar"), i, o.altar.length), !picked(a), () => { o.altar.splice(i, 1); idolChanged(); }),
+      body: () => altarRulesetBody(a, altar, base, altarName, groups),
+    })),
+    h("div", { class: "row" }, h("button", { onclick: () => { o.altar.push(NEW_ALTAR()); idolChanged(); } }, tx("Add Additional Ruleset"))));
+}
+
+/** One ruleset of the idol altar: its preferred altars and preferred affixes. */
+function altarRulesetBody(a, altar, base, altarName, groups) {
+  const flip = (list, id) => { const i = list.indexOf(id); if (i >= 0) list.splice(i, 1); else list.push(id); idolChanged(); };
+  return [
     h("h3", {}, tx("Preferred altars")),
     h("div", { class: "row" },
-      h("button", { disabled: !o.altar.bases.length, onclick: () => { o.altar.bases = []; idolChanged(); } }, tx("Clear"))),
+      h("button", { disabled: !a.bases.length, onclick: () => { a.bases = []; idolChanged(); } }, tx("Clear"))),
     h("div", { class: "bases" }, altar.bases.map((b) => {
       const label = h("label", {},
-        h("input", { type: "checkbox", checked: o.altar.bases.includes(b.id), onchange: () => flip(o.altar.bases, b.id) }),
+        h("input", { type: "checkbox", checked: a.bases.includes(b.id), onchange: () => flip(a.bases, b.id) }),
         altarName(b), h("span", { class: "lvl" }, tx("lvl {n}", { n: b.level })));
       const sub = base?.subtypes.find((x) => x.id === b.id);
       return sub ? withBaseTip(label, ALTAR_KEY, sub) : label;
     })),
     h("h3", {}, tx("Preferred affixes")),
     h("div", { class: "row" },
-      h("button", { disabled: !o.altar.affixes.length, onclick: () => { o.altar.affixes = []; idolChanged(); } }, tx("Clear"))),
+      h("button", { disabled: !a.affixes.length, onclick: () => { a.affixes = []; idolChanged(); } }, tx("Clear"))),
     [...groups].map(([group, list]) => h("div", { class: "pool-group" },
       h("div", { class: "grp-head" }, h("span", {}, `${catName(group)} (${list.length})`)),
-      h("div", { class: "pool-cols" }, list.map((a) => h("label", {},
-        h("input", { type: "checkbox", checked: o.altar.affixes.includes(a.id), onchange: () => flip(o.altar.affixes, a.id) }), affixName(a.id), affixPill(a.id),
-        affixValueCell(M.affix.get(a.id), { typeIds: new Set([altar.type_id]) })))))));
+      h("div", { class: "pool-cols" }, list.map((x) => h("label", {},
+        h("input", { type: "checkbox", checked: a.affixes.includes(x.id), onchange: () => flip(a.affixes, x.id) }), affixName(x.id), affixPill(x.id),
+        affixValueCell(M.affix.get(x.id), { typeIds: new Set([altar.type_id]) }))))))];
 }
 
 async function applyIdols() {
@@ -3540,7 +3813,23 @@ function wire() {
   fitBars();
 }
 
+/** The page's keep-alive stream to the server: once the editor's last page is closed the server stops (and its console
+ *  window closes). A page left open says so when the server is gone, and carries on when it's back on this port. */
+function keepAlive() {
+  if (!window.EventSource) return;
+  const es = new EventSource("/api/alive");
+  let banner = null;
+  es.addEventListener("open", () => { banner?.remove(); banner = null; });
+  es.addEventListener("error", () => {
+    if (es.readyState === EventSource.OPEN || banner) return;
+    banner = h("div", { class: "offline-banner", role: "alert" },
+      tx("The editor has stopped (its window was closed). Start it again to carry on here: this page reconnects by itself and keeps its unsaved changes."));
+    put(document.body, banner);
+  });
+}
+
 async function init() {
+  keepAlive();   // first: a reload must reconnect before the server gives up on it
   wire();
   // A tip whose element was re-rendered under the mouse gets no pointerleave: moving onto anything else hides it.
   document.addEventListener("pointerover", (e) => { if (e.pointerType !== "touch" && !tipOwner(e.target)) hideTip(); });

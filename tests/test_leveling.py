@@ -1,7 +1,10 @@
 import pytest
 
-from lefilter.leveling import gear_affixes, level_windows, parse_options, plan_leveling, toggle_affixes
-from lefilter.sections import RuleInfo, insert_position, place
+from lefilter.filterdoc import parse_rule_blocks
+from lefilter.filterxml import render_rule
+from lefilter.leveling import gear_affixes, level_windows, parse_options, plan_leveling, tier_bands, toggle_affixes
+from lefilter.matcher import Context, evaluate
+from lefilter.sections import RuleInfo, doc_infos, insert_position, place, place_leveling, reorder_generated
 from lefilter.rules import ConfigError
 
 
@@ -123,13 +126,19 @@ def test_plan_weapon_batches_highlight_mode():
     assert first.affix_ids == [30, 63, 89] and first.rarity == "MAGIC RARE EXALTED"
     assert first.spec.color == 14 and first.spec.emphasized
     assert rules[1].affix_ids is None and rules[1].spec.color is None
-    assert len(rules) == 10
+    assert first.affix_tier is None                          # T1: any tier
+    # the 20-39 window: its affix rule splits where the tier changes, its base rule doesn't
+    assert [(r.name, r.char_level, r.affix_tier) for r in rules[4:7]] == [
+        ("[L] Two-Handed Sword 20-29 build affix T2+", (20, 29), 2), ("[L] Two-Handed Sword 30-39 build affix T3+", (30, 39), 3),
+        ("[L] Two-Handed Sword 20-39", (20, 39), None)]
+    assert [r.affix_tier for r in rules[7:]] == [4, None, 4, None]
+    assert len(rules) == 11
 
 
 def test_weapon_modes_and_fallback_without_affixes():
     require = plan_leveling(parse_options({"damage": ["physical"], "weapons": ["TWO_HANDED_SWORD"], "weapon_mode": "require",
                                            "header": ""}, BASES), DATA)
-    assert all(r.affix_ids for r in require.rules) and len(require.rules) == 5
+    assert all(r.affix_ids for r in require.rules) and len(require.rules) == 6   # 20-39 split by tier
     bare = plan_leveling(parse_options({"weapons": ["TWO_HANDED_SWORD"], "weapon_mode": "require", "header": ""}, BASES), DATA)
     assert all(r.affix_ids is None for r in bare.rules) and len(bare.rules) == 5
     assert any("none of the selected affixes" in w for w in bare.warnings)
@@ -137,7 +146,7 @@ def test_weapon_modes_and_fallback_without_affixes():
 
 def test_offhands_use_defences_and_gear_rules():
     opts = parse_options({"damage": ["physical"], "defence": ["health"], "offhands": ["Shield"], "armour": True,
-                          "jewelry": True, "weapon_mode": "require", "header": ""}, BASES)
+                          "jewelry": True, "weapon_mode": "require", "header": "", "tier_step": 0}, BASES)
     plan = plan_leveling(opts, DATA)
     shield = [r for r in plan.rules if r.item_types == ["SHIELD"]]
     assert [r.char_level for r in shield] == [(0, 29), (30, 59)]
@@ -150,7 +159,7 @@ def test_offhands_use_defences_and_gear_rules():
 
 
 def test_jewelry_and_belts_good_bases_highlighted_until_cap():
-    opts = parse_options({"defence": ["health"], "jewelry": True, "header": ""}, BASES)
+    opts = parse_options({"defence": ["health"], "jewelry": True, "header": "", "tier_step": 0}, BASES)
     rules = plan_leveling(opts, DATA).rules
     assert [r.name for r in rules] == ["[L] Amulet good bases build affix 0-59", "[L] Ring good bases build affix 0-59",
                                        "[L] Relic good bases build affix 0-59", "[L] Jewelry & belts build affix 0-59"]
@@ -161,7 +170,7 @@ def test_jewelry_and_belts_good_bases_highlighted_until_cap():
     assert amulet.spec.emphasized and not rest.spec.emphasized and rest.spec.color == 13
     assert rest.item_types == ["BELT", "AMULET", "RING", "RELIC"] and rest.sub_types == []
     # the belt has no good base in BASES; a class keeps only its own relics
-    sentinel = plan_leveling(parse_options({"defence": ["health"], "jewelry": True, "header": "",
+    sentinel = plan_leveling(parse_options({"defence": ["health"], "jewelry": True, "header": "", "tier_step": 0,
                                             "character_class": "Sentinel"}, BASES), DATA).rules
     assert [r.sub_types for r in sentinel if r.item_types == ["RELIC"]] == [[44]]
 
@@ -182,7 +191,8 @@ def test_good_bases_config():
 
 def test_good_bases_for_any_slot_stay_on_until_cap_above_the_windows():
     opts = parse_options({"damage": ["physical"], "defence": ["health"], "weapons": ["2H Sword"], "armour": True,
-                          "good_bases": {"2H Sword": ["base2", "base3"], "HELMET": ["base0"]}, "header": ""}, BASES)
+                          "good_bases": {"2H Sword": ["base2", "base3"], "HELMET": ["base0"]}, "header": "",
+                          "tier_step": 0}, BASES)
     rules = plan_leveling(opts, DATA).rules
     sword, helmet = rules[:2]
     assert sword.name == "[L] Two-Handed Sword good bases build affix 0-59"
@@ -213,7 +223,7 @@ def test_attributes_count_where_they_roll_and_all_attributes_is_its_own_toggle()
     assert by_type["TWO_HANDED_SWORD"].affix_ids == [50]     # All Attributes: Strength doesn't roll on weapons
     assert by_type["SHIELD"].affix_ids is None               # neither rolls on shields: bases only
     assert by_type["HELMET"].affix_ids == [501] and by_type["BELT"].affix_ids == [501]   # rings and relics
-    assert names(plan.rule_affixes["[L] Jewelry & belts build affix 0-59"]) == ["Strength"]
+    assert names(plan.rule_affixes["[L] Jewelry & belts build affix 0-19"]) == ["Strength"]
 
 
 def test_each_kind_of_gear_has_its_own_toggles():
@@ -274,11 +284,11 @@ def test_class_affixes_count_on_their_slots_for_their_class():
     plan = plan_leveling(parse_options(table, BASES), DATA)
     assert names(plan.class_affixes) == ["Level of Rive", "Level of Smite", "Increased Smelters Wrath Damage"]
     assert "class_affixes: not Sentinel affixes, left out: Level of Fireball" in plan.warnings
-    armour = plan.rule_affixes["[L] Armour 2+ build affixes 0-59"]
+    armour = plan.rule_affixes["[L] Armour 2+ build affixes 0-19"]
     assert {563, 380} <= {a["id"] for a in armour} and 603 not in {a["id"] for a in armour}
-    relic = plan.rule_affixes["[L] Relic good bases build affix 0-59"]
+    relic = plan.rule_affixes["[L] Relic good bases build affix 0-19"]
     assert {a["id"] for a in relic} == {25, 603}
-    assert 563 not in {a["id"] for a in plan.rule_affixes["[L] Jewelry & belts build affix 0-59"]}
+    assert 563 not in {a["id"] for a in plan.rule_affixes["[L] Jewelry & belts build affix 0-19"]}
     no_class = plan_leveling(parse_options({**table, "character_class": ""}, BASES), DATA)
     assert no_class.class_affixes == [] and "class_affixes: no class chosen; class affixes left out" in no_class.warnings
     no_armour = plan_leveling(parse_options({**table, "armour": False}, BASES), DATA)
@@ -341,7 +351,7 @@ def test_sections_can_exclude_single_affixes():
     plan = plan_leveling(parse_options(table, BASES), DATA)
     assert names(plan.picked["armour"]["strength"]) == [] and names(plan.candidates["armour"]["strength"]) == ["Strength"]
     assert plan.excluded["armour"] == {501} and plan.excluded["jewelry"] == {501}   # by id, or by name
-    assert [a["id"] for a in plan.rule_affixes["[L] Armour 2+ build affixes 0-59"]] == [25]
+    assert [a["id"] for a in plan.rule_affixes["[L] Armour 2+ build affixes 0-19"]] == [25]
     assert not [w for w in plan.warnings if "Strength" in w]          # an excluded toggle isn't "missing"
     assert names(plan.picked["jewelry"]["health"]) == ["Added Health"]
     with pytest.raises(ConfigError, match="exclude must be a list"):
@@ -360,9 +370,9 @@ def test_a_class_affix_excluded_in_one_section_stays_out_of_it_only():
              "jewelry_affixes": {"defence": ["health"]}}
     plan = plan_leveling(parse_options(table, BASES), DATA)
     assert plan.excluded["armour"] == {563}
-    armour = [a["id"] for a in plan.rule_affixes["[L] Armour 2+ build affixes 0-59"]]
+    armour = [a["id"] for a in plan.rule_affixes["[L] Armour 2+ build affixes 0-19"]]
     assert 563 not in armour and 380 in armour                       # the other class pick stays
-    assert 603 in [a["id"] for a in plan.rule_affixes["[L] Jewelry & belts build affix 0-59"]]
+    assert 603 in [a["id"] for a in plan.rule_affixes["[L] Jewelry & belts build affix 0-19"]]
 
 
 def test_toggles_match_the_affixes_own_name_and_excludes_take_either_name():
@@ -378,3 +388,99 @@ def test_toggles_match_the_affixes_own_name_and_excludes_take_either_name():
         table = {"armour": True, "header": "", "armour_affixes": {"attributes": ["strength"], "exclude": [name]}}
         plan = plan_leveling(parse_options(table, BASES), data)
         assert plan.excluded["armour"] == {501} and not [w for w in plan.warnings if "exclude" in w]
+
+
+def test_build_affixes_need_a_higher_tier_as_the_character_levels():
+    opts = parse_options({}, BASES)
+    assert tier_bands(0, 59, opts) == [(0, 19, 1), (20, 29, 2), (30, 39, 3), (40, 59, 4)]
+    assert tier_bands(25, 34, opts) == [(25, 29, 2), (30, 34, 3)]
+    assert tier_bands(0, 59, parse_options({"tier_step": 0}, BASES)) == [(0, 59, 1)]
+    assert tier_bands(0, 59, parse_options({"tier_step": 15, "max_tier": 2}, BASES)) == [(0, 29, 1), (30, 59, 2)]
+    plan = plan_leveling(parse_options({"defence": ["health"], "armour": True, "jewelry": True, "header": "",
+                                        "good_bases": {"AMULET": [], "RING": [], "RELIC": []}}, BASES), DATA)
+    assert [(r.name, r.affix_tier, r.affix_min) for r in plan.rules] == [
+        ("[L] Armour 2+ build affixes 0-19", None, 2), ("[L] Armour 2+ build affixes T2+ 20-29", 2, 2),
+        ("[L] Armour 2+ build affixes T3+ 30-39", 3, 2), ("[L] Armour 2+ build affixes T4+ 40-59", 4, 2),
+        ("[L] Armour 1 build affix 0-19", None, 1), ("[L] Armour 1 build affix T2+ 20-29", 2, 1),
+        ("[L] Jewelry & belts build affix 0-19", None, 1), ("[L] Jewelry & belts build affix T2+ 20-29", 2, 1),
+        ("[L] Jewelry & belts build affix T3+ 30-39", 3, 1), ("[L] Jewelry & belts build affix T4+ 40-59", 4, 1)]
+    xml = render_rule(plan.rules[3])
+    assert "<comparsion>MORE_OR_EQUAL</comparsion>" in xml and "<comparsionValue>4</comparsionValue>" in xml
+    for bad in ({"tier_step": -1}, {"max_tier": 0}, {"max_tier": 8}):
+        with pytest.raises(ConfigError, match="tier_step"):
+            parse_options(bad, BASES)
+
+
+def test_endgame_rares_per_slot_in_their_own_section():
+    opts = parse_options({"damage": ["physical"], "defence": ["health"], "weapons": ["2H Sword"], "weapon_mode": "bases",
+                          "armour": True, "endgame_bases": {"2H Sword": ["base4", "base6"], "Helmet": ["Laser Hat"]}}, BASES)
+    plan = plan_leveling(opts, DATA)
+    header, *rules = plan.endgame
+    assert header.is_separator and header.name == "[E] ------ ENDGAME RARES - disable when not needed ------"
+    assert not header.spec.enabled and not any(r.name.startswith("[E]") for r in plan.rules)
+    assert [r.name for r in rules] == ["[E] Two-Handed Sword endgame rare", "[E] Helmet endgame rare", "[E] Body Armor endgame rare",
+                                       "[E] Boots endgame rare", "[E] Gloves endgame rare"]
+    sword, helmet, *_ = rules
+    assert sword.sub_types == [4, 6] and helmet.sub_types == []          # no endgame base picked: any base
+    assert sword.affix_ids == [30, 63] and helmet.affix_ids == [25, 30]  # in `bases` mode too: the build's affixes
+    assert all(r.rarity == "RARE EXALTED" and r.char_level is None and r.spec.enabled and r.spec.color == 12
+               and (r.affix_min, r.affix_tier, r.affix_sum) == (2, 5, 14) for r in rules)
+    assert "endgame_bases: Helmet has no bases named Laser Hat" in plan.warnings
+    no_armour_affix = plan_leveling(parse_options({"focus": ["minion"], "armour": True}, BASES), DATA)
+    assert no_armour_affix.endgame == [] and not [w for w in no_armour_affix.warnings if "endgame" in w]   # said already
+    # a class keeps only its own bases; none of its own picked: any base
+    sentinel = plan_leveling(parse_options({"damage": ["physical"], "weapons": ["2H Sword"], "character_class": "Sentinel",
+                                            "endgame_bases": {"TWO_HANDED_SWORD": ["base3"]}}, BASES), DATA)
+    assert sentinel.endgame[1].sub_types == []
+    mage = plan_leveling(parse_options({"damage": ["physical"], "weapons": ["2H Sword"], "character_class": "Mage",
+                                        "endgame_bases": {"TWO_HANDED_SWORD": ["base3"]}}, BASES), DATA)
+    assert mage.endgame[1].sub_types == [3]
+    # a slot nothing of the build rolls on gets none, and a warning
+    shield = plan_leveling(parse_options({"focus": ["minion"], "offhands": ["Shield"]}, BASES), DATA)
+    assert shield.endgame == [] and "Shield endgame rares: none of the build's affixes roll on it; no rule generated" in shield.warnings
+    with pytest.raises(ConfigError, match="endgame_prefix"):
+        parse_options({"endgame_prefix": "[L] "}, BASES)
+    with pytest.raises(ConfigError, match="endgame_bases must be"):
+        parse_options({"endgame_bases": {"RING": "Gold Ring"}}, BASES)
+
+
+def test_endgame_rare_needs_two_t5_and_tiers_adding_up_to_14():
+    plan = plan_leveling(parse_options({"defence": ["health"], "damage": ["physical"], "attributes": ["strength"],
+                                        "armour": True}, BASES), DATA)
+    rules = parse_rule_blocks([render_rule(r) for r in plan.endgame])
+    helmet = next(r for r in rules if r["name"] == "[E] Helmet endgame rare")
+    assert [(c["comparsion"], c["comparsion_value"], c["min_on_same_item"], c["combined_comparsion"], c["combined_value"])
+            for c in helmet["conditions"] if c["type"] == "AffixCondition"] == [
+        ("MORE_OR_EQUAL", 5, 2, "ANY", 1), ("ANY", 0, 2, "MORE_OR_EQUAL", 14)]
+    ctx = Context({**DATA, "uniques": []})
+
+    def shown(*affixes, rarity="RARE"):   # build affixes: Added Health 25, Increased Physical Damage 30, Strength 501
+        item = {"type": "HELMET", "subtype": 0, "rarity": rarity, "affixes": [{"id": a, "tier": t} for a, t in affixes]}
+        return evaluate([helmet], item, 80, ctx)["index"] == 0
+    assert shown((25, 5), (30, 5), (501, 4)) and shown((25, 5), (30, 5), (501, 5)) and shown((25, 6), (30, 5), (501, 3))
+    assert not shown((25, 5), (30, 5)) and not shown((25, 5), (30, 5), (501, 1)) and not shown((25, 5), (30, 4), (501, 4))
+    assert not shown((25, 5), (30, 5), (37, 4))               # Physical Resistance isn't a build affix: 10 in all
+    assert not shown((25, 5), (30, 5), (501, 4), rarity="MAGIC")
+
+
+def test_endgame_rares_go_right_below_the_exalted_section():
+    def doc(*names):
+        return [{"name": n, "conditions": [] if n.startswith("--") or n == "HIDE" else [{"type": "RarityCondition"}],
+                 "enabled": n == "HIDE" or not n.startswith("--"), "type": "HIDE" if n == "HIDE" else "SHOW"} for n in names]
+    rules = doc("--- EXALTED & LEGENDARY ---", "double t7", "legendary", "--- UNIQUES ---", "unique", "HIDE")
+    leveling, endgame = doc("[L] --- LEVELING ---", "[L] a"), doc("[E] --- ENDGAME ---", "[E] helmet")
+    out, removed, at = place_leveling(rules, doc_infos, leveling, endgame, "[L] ", "[E] ")
+    assert [r["name"] for r in out] == ["--- EXALTED & LEGENDARY ---", "double t7", "legendary", "[E] --- ENDGAME ---",
+                                        "[E] helmet", "--- UNIQUES ---", "unique", "[L] --- LEVELING ---", "[L] a", "HIDE"]
+    assert removed == 0 and at == 7
+    again, removed, at = place_leveling(out, doc_infos, leveling[:1], endgame[:1], "[L] ", "[E] ")
+    assert [r["name"] for r in again] == ["--- EXALTED & LEGENDARY ---", "double t7", "legendary", "[E] --- ENDGAME ---",
+                                          "--- UNIQUES ---", "unique", "[L] --- LEVELING ---", "HIDE"]
+    assert removed == 4 and at == 6
+    # moved away, Reorder generated sections puts it back
+    moved = [again[i] for i in (0, 1, 2, 4, 5, 3, 6, 7)]
+    back, labels = reorder_generated(moved, {"leveling": "[L] ", "endgame": "[E] "})
+    assert back == again and labels == ["endgame rares section"]
+    # no exalted section: right before the uniques
+    out, _, _ = place_leveling(doc("--- UNIQUES ---", "unique", "HIDE"), doc_infos, [], endgame, "[L] ", "[E] ")
+    assert [r["name"] for r in out][:2] == ["[E] --- ENDGAME ---", "[E] helmet"]

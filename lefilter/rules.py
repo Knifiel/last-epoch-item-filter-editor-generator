@@ -189,7 +189,9 @@ class Rule:
     only honours for a single type) an Item Type condition; char_level a Character
     Level condition (min, max); classes a Class Requirement condition (items only those
     classes can use). affix_tier / affix_total make the Affix condition count only affixes
-    of at least that tier / need their tiers to add up to at least that; corruption adds a
+    of at least that tier / need their tiers to add up to at least that (the game adds up only
+    the affixes that pass the tier check); affix_sum adds a second Affix condition: affix_min of
+    the same affixes at any tier, their tiers adding up to at least that. corruption adds a
     Corruption condition ("OnlyCorrupted" / "OnlyUncorrupted"). A rule with none of them is
     a section separator.
     """
@@ -206,6 +208,7 @@ class Rule:
     classes: list[str] | None = None
     affix_tier: int | None = None
     affix_total: int | None = None
+    affix_sum: int | None = None
     corruption: str | None = None
 
     @property

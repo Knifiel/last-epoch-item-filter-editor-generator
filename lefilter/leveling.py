@@ -20,6 +20,12 @@ base matters little (their best bases come early), so every one with a build aff
 shown until the cap. On top of all that, each slot's good bases (picked per build; by
 default the jewelry and belt bases with resistance implicits) get their own rule: still
 needing a build affix, but on from level 0 until the cap, where the BiS rules take over.
+Build affixes count from a tier that grows with the character level (`tier_step`, `max_tier`:
+T2+ from level 20, T3+ from 30, T4+ from 40), so rules needing them are split where it changes.
+
+Next to the section, in their own (ENDGAME_PLACEMENT, right below the exalted rules, own prefix):
+per slot in use an endgame rares rule - rares with two T5+ build affixes whose build affix tiers
+add up to 14+, on the slot's endgame bases (none picked: any base), at any level.
 
 Ordering convention: index 0 is the TOP of the in-game list.
 """
@@ -121,10 +127,15 @@ STYLE_DEFAULTS = {
     "gear_single": {},                                   # ... with one build affix, early levels only
     "jewelry": {"color": 13},                            # jewelry / belt with a build affix
     "good_base": {"color": 15, "emphasized": True},      # any slot's good base, until the cap
+    "endgame": {"color": 12, "emphasized": True},        # endgame rare, any level
 }
+# Endgame rares: rares with ENDGAME_MIN build affixes of tier ENDGAME_TIER+, all their build affixes'
+# tiers adding up to ENDGAME_TOTAL+ (T5 + T5 + T4).
+ENDGAME_TIER, ENDGAME_MIN, ENDGAME_TOTAL = 5, 2, 14
 OPTION_KEYS = {"enabled", "damage", "focus", "attributes", "defence", "weapons", "offhands", "armour", "jewelry",
                *(key for key, _ in SECTIONS.values()), "character_class", "class_affixes", "step", "cap", "weapon_mode", "rarity", "gear_min_affixes",
-               "single_affix_until", "good_bases", "rule_prefix", "header", "style"}
+               "single_affix_until", "good_bases", "rule_prefix", "header", "style", "tier_step", "max_tier",
+               "endgame_bases", "endgame_prefix", "endgame_header"}
 
 
 @dataclass
@@ -154,8 +165,14 @@ class LevelingOptions:
     gear_min_affixes: int = 2
     single_affix_until: int = 30     # armour with 1 build affix is shown below this level (0 = never)
     good_bases: dict = field(default_factory=lambda: {t: list(b) for t, b in GOOD_BASES.items()})
+    # Build affixes count from tier (character level // tier_step), T1 at first, up to max_tier (0 = any tier).
+    tier_step: int = 10
+    max_tier: int = 4
+    endgame_bases: dict = field(default_factory=dict)      # item type -> base names its endgame rule takes (none: any)
     rule_prefix: str = "[L] "
     header: str = "------- LEVELING (auto) -------"
+    endgame_prefix: str = "[E] "                           # the endgame rares section's own prefix and header
+    endgame_header: str = "------ ENDGAME RARES - disable when not needed ------"
     style: dict = field(default_factory=dict)
 
     def spec(self, kind: str) -> RuleSpec:
@@ -180,17 +197,19 @@ def _type_aliases(bases: list[dict]) -> dict[str, str]:
     return aliases
 
 
-def _good_bases(table: dict, bases: list[dict], aliases: dict[str, str]) -> dict[str, list[str]]:
-    """good_bases (item type -> base names) over the defaults, names spelled as the game does.
-    Unknown names are kept: planning warns about them (a patch may rename a default)."""
+def _good_bases(table: dict, bases: list[dict], aliases: dict[str, str], key: str = "good_bases",
+                defaults: dict | None = None) -> dict[str, list[str]]:
+    """good_bases (item type -> base names) over the defaults (GOOD_BASES), names spelled as the game
+    does; endgame_bases the same way. Unknown names are kept: planning warns about them (a patch may
+    rename a default)."""
     if not isinstance(table, dict) or not all(isinstance(v, list) for v in table.values()):
-        raise ConfigError("[leveling] good_bases must be a table of item type -> list of base names")
+        raise ConfigError(f"[leveling] {key} must be a table of item type -> list of base names")
     by_type = {b["type"]: b for b in bases}
-    out = {t: list(b) for t, b in GOOD_BASES.items()}
-    for key, names in table.items():
-        t = key if key in GEAR_TYPES else aliases.get(_norm(key))
+    out = {t: list(b) for t, b in (GOOD_BASES if defaults is None else defaults).items()}
+    for name, names in table.items():
+        t = name if name in GEAR_TYPES else aliases.get(_norm(name))
         if t not in GEAR_TYPES:
-            raise ConfigError(f"[leveling] good_bases: {key!r} isn't a weapon, off-hand, armour or jewelry type")
+            raise ConfigError(f"[leveling] {key}: {name!r} isn't a weapon, off-hand, armour or jewelry type")
         known = {_norm(s["name"]): s["name"] for s in by_type[t]["subtypes"]} if t in by_type else {}
         out[t] = list(dict.fromkeys(known.get(_norm(n), n) for n in names))
     return out
@@ -250,6 +269,7 @@ def parse_options(table: dict, bases: list[dict]) -> LevelingOptions:
             resolved.append(t)
         setattr(opts, attr, list(dict.fromkeys(resolved)))
     opts.good_bases = _good_bases(opts.good_bases, bases, aliases)
+    opts.endgame_bases = _good_bases(opts.endgame_bases, bases, aliases, "endgame_bases", {})
     if not isinstance(opts.class_affixes, list) or not all(isinstance(a, (int, str)) for a in opts.class_affixes):
         raise ConfigError("[leveling] class_affixes must be a list of affix ids or names")
     if opts.character_class and opts.character_class not in CLASSES:
@@ -262,6 +282,11 @@ def parse_options(table: dict, bases: list[dict]) -> LevelingOptions:
         raise ConfigError(f"[leveling] rarity: known rarities are {', '.join(RARITIES)}")
     if not 1 <= opts.gear_min_affixes <= 4:
         raise ConfigError("[leveling] gear_min_affixes must be 1-4")
+    if not 0 <= opts.tier_step <= 100 or not 1 <= opts.max_tier <= 7:
+        raise ConfigError("[leveling] tier_step must be 0-100 (0 = any tier) and max_tier 1-7")
+    if not opts.endgame_prefix or (opts.rule_prefix and (opts.rule_prefix.startswith(opts.endgame_prefix)
+                                                         or opts.endgame_prefix.startswith(opts.rule_prefix))):
+        raise ConfigError("[leveling] endgame_prefix must be set and differ from rule_prefix (neither may start the other)")
     bad_styles = set(opts.style) - set(STYLE_DEFAULTS)
     if bad_styles:
         raise ConfigError(f"[leveling] style: unknown {sorted(bad_styles)}; known: {', '.join(STYLE_DEFAULTS)}")
@@ -428,6 +453,7 @@ class Window:
 @dataclass
 class LevelingPlan:
     rules: list[Rule]
+    endgame: list[Rule]                     # the endgame rares section (its header first), placed on its own
     picked: dict[str, dict[str, list[dict]]]   # section -> toggle -> affixes its gear takes
     candidates: dict[str, dict[str, list[dict]]]   # ... every affix the toggle could give it (before exclusions)
     excluded: dict[str, set[int]]           # section -> affix ids its exclude list takes out
@@ -450,6 +476,27 @@ def good_subtypes(base: dict, names: list[str], character_class: str = "") -> tu
            if _norm(s["name"]) in wanted and (not character_class or _class_ok(s, character_class))]
     found = {_norm(s["name"]) for s in base["subtypes"]}
     return ids, [n for n in names if _norm(n) not in found]
+
+
+def min_tier(level: int, opts: LevelingOptions) -> int:
+    """The tier build affixes need at a character level: level // tier_step, T1 at first, up to max_tier."""
+    return max(1, min(opts.max_tier, level // opts.tier_step)) if opts.tier_step else 1
+
+
+def tier_bands(lo: int, hi: int, opts: LevelingOptions) -> list[tuple[int, int, int]]:
+    """Character levels lo-hi split where the tier build affixes need changes: [(first, last, tier)]."""
+    bands: list[tuple[int, int, int]] = []
+    for level in range(lo, hi + 1):
+        t = min_tier(level, opts)
+        if bands and bands[-1][2] == t:
+            bands[-1] = (bands[-1][0], level, t)
+        else:
+            bands.append((level, level, t))
+    return bands
+
+
+def _tier_name(t: int) -> str:
+    return f" T{t}+" if t > 1 else ""
 
 
 def level_windows(subtypes: list[dict], step: int, cap: int, character_class: str = "") -> list[Window]:
@@ -490,6 +537,13 @@ def plan_leveling(opts: LevelingOptions, data: dict) -> LevelingPlan:
         if affixes is not None:
             rule_affixes[rule.name] = affixes
 
+    def tiered(name: str, levels: tuple[int, int], affixes: list[dict], out: list[Rule] | None = None, **kw) -> None:
+        """The rule for build affixes over a level range: one per tier band, named with its tier and levels."""
+        for lo, hi, tier in tier_bands(*levels, opts):
+            rule = Rule(name=f"{name}{_tier_name(tier)} {lo}-{hi}", affix_tier=tier if tier > 1 else None, char_level=(lo, hi), **kw)
+            (rules if out is None else out).append(rule)
+            rule_affixes[rule.name] = affixes
+
     for t in dict.fromkeys(opts.weapons + opts.offhands):
         base = bases[t]
         eligible = rolling_on(pools[SECTION_OF[t]], (t,))
@@ -505,12 +559,14 @@ def plan_leveling(opts: LevelingOptions, data: dict) -> LevelingPlan:
         for w in wins:
             label = f"{p}{base['name']} {w.min}-{w.max}"
             common = dict(group="leveling", unique_ids=None, rarity=rarity, item_types=[t],
-                          sub_types=[s["id"] for s in w.bases], char_level=(w.min, w.max))
+                          sub_types=[s["id"] for s in w.bases])
             if mode in ("highlight", "require"):
-                add(Rule(name=f"{label} build affix", spec=opts.spec("weapon_affix"),
-                         affix_ids=[a["id"] for a in eligible], **common), eligible)
+                for lo, hi, tier in tier_bands(w.min, w.max, opts):   # the window, split where the tier changes
+                    add(Rule(name=f"{p}{base['name']} {lo}-{hi} build affix{_tier_name(tier)}", spec=opts.spec("weapon_affix"),
+                             affix_ids=[a["id"] for a in eligible], affix_tier=tier if tier > 1 else None,
+                             char_level=(lo, hi), **common), eligible)
             if mode in ("highlight", "bases"):
-                add(Rule(name=label, spec=opts.spec("weapon_base"), **common))
+                add(Rule(name=label, spec=opts.spec("weapon_base"), char_level=(w.min, w.max), **common))
 
     last = opts.cap - 1
     if opts.armour:
@@ -522,12 +578,11 @@ def plan_leveling(opts: LevelingOptions, data: dict) -> LevelingPlan:
             n = opts.gear_min_affixes
             common = dict(group="leveling", unique_ids=None, rarity=rarity, item_types=list(GEAR_ARMOUR),
                           affix_ids=[a["id"] for a in eligible])
-            add(Rule(name=f"{p}Armour {n}+ build affixes 0-{last}", spec=opts.spec("gear"), affix_min=n,
-                     char_level=(0, last), **common), eligible)
+            tiered(f"{p}Armour {n}+ build affixes", (0, last), eligible, spec=opts.spec("gear"), affix_min=n, **common)
             until = min(opts.single_affix_until, opts.cap)
             if n > 1 and until > 0:
-                add(Rule(name=f"{p}Armour 1 build affix 0-{until - 1}", spec=opts.spec("gear_single"), affix_min=1,
-                         char_level=(0, until - 1), **common), eligible)
+                tiered(f"{p}Armour 1 build affix", (0, until - 1), eligible, spec=opts.spec("gear_single"), affix_min=1,
+                       **common)
 
     if opts.jewelry:
         slots.update({t: rolling_on(pools["jewelry"], (t,)) for t in GEAR_JEWELRY})
@@ -535,29 +590,51 @@ def plan_leveling(opts: LevelingOptions, data: dict) -> LevelingPlan:
         if not eligible:
             warnings.append("Jewelry & belts: no selected affix rolls on them; no rule generated")
         else:
-            add(Rule(name=f"{p}Jewelry & belts build affix 0-{last}", group="leveling", spec=opts.spec("jewelry"),
-                     unique_ids=None, rarity=rarity, item_types=list(GEAR_JEWELRY),
-                     affix_ids=[a["id"] for a in eligible], affix_min=1, char_level=(0, last)), eligible)
+            tiered(f"{p}Jewelry & belts build affix", (0, last), eligible, group="leveling", spec=opts.spec("jewelry"),
+                   unique_ids=None, rarity=rarity, item_types=list(GEAR_JEWELRY), affix_ids=[a["id"] for a in eligible],
+                   affix_min=1)
 
     # Good bases on top, so they win over the windows and affix counts below: one rule per item
     # type (a rule only takes bases for a single type), on from level 0 until the cap. Like the
     # rest they need a build affix (only weapons in `bases` mode ignore affixes); after the cap
     # the BiS rules take over.
-    good_rules = []
+    good_rules: list[Rule] = []
     for t, need in slots.items():
         good, unknown = good_subtypes(bases[t], opts.good_bases.get(t, []), opts.character_class)
         if unknown:
             warnings.append(f"good_bases: {bases[t]['name']} has no bases named {', '.join(unknown)}")
+        common = dict(group="leveling", spec=opts.spec("good_base"), unique_ids=None, rarity=rarity, item_types=[t],
+                      sub_types=good)
         if good and need == []:
             warnings.append(f"{bases[t]['name']} good bases: none of the build's affixes roll on it; no rule generated")
+        elif good and need:
+            tiered(f"{p}{bases[t]['name']} good bases build affix", (0, last), need, good_rules,
+                   affix_ids=[a["id"] for a in need], **common)
         elif good:
-            good_rules.append(Rule(name=f"{p}{bases[t]['name']} good bases{' build affix' if need else ''} 0-{last}",
-                                   group="leveling", spec=opts.spec("good_base"), unique_ids=None, rarity=rarity,
-                                   item_types=[t], sub_types=good, affix_ids=[a["id"] for a in need] if need else None,
-                                   char_level=(0, last)))
-            if need:
-                rule_affixes[good_rules[-1].name] = need
+            good_rules.append(Rule(name=f"{p}{bases[t]['name']} good bases 0-{last}", char_level=(0, last), **common))
     rules[:0] = good_rules
+
+    # Endgame rares, per slot in use: its build affixes (in `bases` mode too), two at T5+ and all of them
+    # adding up to 14+. The game adds up only the affixes that pass a condition's tier check, so the total
+    # is a second Affix condition (a rule's Affix conditions must all match). No character level.
+    endgame: list[Rule] = []
+    for t in slots:
+        need = rolling_on(pools[SECTION_OF[t]], (t,))
+        endgame_subs, unknown = good_subtypes(bases[t], opts.endgame_bases.get(t, []), opts.character_class)
+        if unknown:
+            warnings.append(f"endgame_bases: {bases[t]['name']} has no bases named {', '.join(unknown)}")
+        if not need:   # armour / jewelry with no build affix at all: their warning above says it
+            if SECTION_OF[t] in ("weapons", "offhands") or pools[SECTION_OF[t]]:
+                warnings.append(f"{bases[t]['name']} endgame rares: none of the build's affixes roll on it; no rule generated")
+            continue
+        endgame.append(Rule(name=f"{opts.endgame_prefix}{bases[t]['name']} endgame rare", group="endgame",
+                            spec=opts.spec("endgame"), unique_ids=None, rarity="RARE EXALTED", item_types=[t],
+                            sub_types=endgame_subs, affix_ids=[a["id"] for a in need], affix_min=ENDGAME_MIN,
+                            affix_tier=ENDGAME_TIER, affix_sum=ENDGAME_TOTAL))
+        rule_affixes[endgame[-1].name] = need
+    if endgame and opts.endgame_header:
+        endgame.insert(0, Rule(name=f"{opts.endgame_prefix}{opts.endgame_header}", group="endgame",
+                               spec=RuleSpec(action="hide", enabled=False), unique_ids=None, rarity=None))
 
     # Picks that do nothing for the gear in use: say why. A toggle none of whose affixes can roll
     # on its kind of gear at all is skipped (the editor doesn't offer it there).
@@ -585,5 +662,5 @@ def plan_leveling(opts: LevelingOptions, data: dict) -> LevelingPlan:
     if rules and opts.header:
         rules.insert(0, Rule(name=f"{p}{opts.header}", group="leveling", spec=RuleSpec(action="hide", enabled=False),
                              unique_ids=None, rarity=None))
-    return LevelingPlan(rules=rules, picked=picked, candidates=candidates, excluded=excluded, class_affixes=class_picks,
+    return LevelingPlan(rules=rules, endgame=endgame, picked=picked, candidates=candidates, excluded=excluded, class_affixes=class_picks,
                         windows=windows, rule_affixes=rule_affixes, warnings=warnings)
